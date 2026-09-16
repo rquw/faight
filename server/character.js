@@ -324,7 +324,8 @@ class Character {
       const wall = this.sinceWall < this.sinceGrounded;
       for (const b of this.bodies) {
         const bv = b.getLinearVelocity();
-        if (wall) b.setLinearVelocity(V(bv.x - this.lastWallSide * JUMP * 0.75, JUMP * 0.85));
+        // off the wall only when steering away from it, otherwise climb straight up
+        if (wall) b.setLinearVelocity(V(move === -this.lastWallSide ? bv.x - this.lastWallSide * JUMP * 0.75 : bv.x * 0.3 + this.lastWallSide * 1.5, JUMP * 0.85));
         else b.setLinearVelocity(V(bv.x, JUMP + Math.max(0, gvy)));
       }
       if (!wall && hit && hit.fixture.getBody().getType() === 'dynamic') hit.fixture.getBody().applyLinearImpulse(V(0, -M * 6), hit.point, true);
