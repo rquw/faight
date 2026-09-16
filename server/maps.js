@@ -66,11 +66,11 @@ const maps = [
     name: 'Lava', bg: '#3b1e22', dark: true,
     build(m) {
       const { W, H } = m;
-      const lava = m.rect(W / 2, -H * 0.2, W * 2, H * 0.6, { kinematic: true, hazard: 'lava', color: '#ff5a1f' });
-      m.tick((t) => lava.setLinearVelocity(V(0, t > 8 && lava.getPosition().y < H * 0.45 ? 0.35 : 0)));
+      const lava = m.rect(W / 2, -H * 0.36, W * 2, H * 0.6, { kinematic: true, hazard: 'lava', color: '#ff5a1f' });
+      m.tick((t) => lava.setLinearVelocity(V(0, t > 6 && lava.getPosition().y < H * 0.45 ? 0.45 : 0)));
       const rows = 6;
       for (let r = 0; r < rows; r++) {
-        const y = H * 0.14 + r * H * 0.14;
+        const y = H * 0.16 + r * H * 0.135;
         const cnt = r % 2 ? 3 : 4;
         for (let i = 0; i < cnt; i++) {
           const x = W * (0.12 + (0.76 * i) / (cnt - 1));

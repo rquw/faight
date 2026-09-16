@@ -88,10 +88,11 @@ class Game {
     const n = this.players.size;
     if (n === 0) { this.state = 'wait'; return; }
     this.state = 'play';
-    this.W = Math.round(30 + 4.5 * Math.max(0, n - 2));
+    this.W = Math.round(26 + 3.8 * Math.max(0, n - 2));
     this.H = this.W * 0.5625;
     let idx;
     do idx = Math.floor(Math.random() * MAPS.length); while (MAPS.length > 1 && idx === this.lastMap);
+    if (this.forceMap != null) idx = this.forceMap;
     this.lastMap = idx;
     const def = MAPS[idx];
     this.mapDef = def;
@@ -116,6 +117,7 @@ class Game {
       const s = spawns.length ? spawns[Math.floor(((i + 0.5) / players.length) * spawns.length)] : { x: this.W / 2, y: this.H / 2 };
       const off = spawns.length < players.length ? (i % 3 - 1) * 0.7 : 0;
       p.char = new Character(this, p, s.x + off, s.y + 0.05);
+      if (process.env.FAIGHT_DEV) { const t = C.ORDER[Math.floor(Math.random() * C.ORDER.length)]; p.char.weapon = { type: t, ammo: C.WEAPONS[t].ammo, spin: 0 }; }
       this.chars.push(p.char);
     });
     this.participants = players.length;

@@ -39,6 +39,11 @@ wss.on('connection', (ws) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.t === 'i' && player) return room.input(player, msg);
+    if (msg.t === 'dev' && player && process.env.FAIGHT_DEV) {
+      const i = require('./maps').findIndex(m => m.name === msg.map);
+      room.forceMap = i >= 0 ? i : null;
+      return room.startRound();
+    }
     if (msg.t === 'ping') return ws.send(JSON.stringify({ t: 'pong', c: msg.c }));
     if ((msg.t === 'create' || msg.t === 'join') && !player) {
       if (msg.t === 'create') {

@@ -9,7 +9,7 @@ for (let n = 0; n < count; n++) {
   ws.on('open', () => ws.send(JSON.stringify({ t: 'join', code, name: names[n % names.length] + 'Bot' })));
   ws.on('message', (raw) => {
     const m = JSON.parse(raw);
-    if (m.t === 'joined') me = m.id;
+    if (m.t === 'joined') { me = m.id; if (n === 0 && process.env.MAP) { const list = process.env.MAP.split(','); let k = 0; const next = () => { ws.send(JSON.stringify({ t: 'dev', map: list[k++ % list.length] })); }; setTimeout(next, 800); if (list.length > 1) setInterval(next, +process.env.EVERY || 8000); } }
     if (m.t !== 's') return;
     const others = m.P.filter(p => p[0] !== me && p[1]);
     self = m.P.find(p => p[0] === me);
