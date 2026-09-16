@@ -161,7 +161,8 @@ class Game {
     const fixture = body.createFixture(geo, {
       density: o.density || 1, friction: o.friction != null ? o.friction : o.ice ? 0.02 : 0.7,
       restitution: o.restitution || 0, isSensor: !!o.sensor,
-      filterCategoryBits: C.CAT_WORLD, filterMaskBits: C.CAT_WORLD | C.CAT_BODY | C.CAT_ITEM | C.CAT_PROJ,
+      filterCategoryBits: type === 'static' ? C.CAT_WORLD : C.CAT_PROP,
+      filterMaskBits: C.CAT_WORLD | C.CAT_PROP | C.CAT_BODY | C.CAT_ITEM | C.CAT_PROJ,
       userData: { hazard: o.hazard, bounce: o.bounce, ice: o.ice },
     });
     const id = this.nextObj++;
@@ -224,11 +225,15 @@ class Game {
         this.event(['thud', r2(fb.getBody().getPosition().x), r2(fb.getBody().getPosition().y), ch.player.id]);
       });
     }
-    if (ua.kind === 'prop' && fa.getBody().getType() === 'dynamic' && fa.getBody().getMass() > 0.9 && rel > 11) {
+    // only a prop that is itself flying fast hurts (falling crates), and only the upper body counts
+    const pb = fa.getBody();
+    const ps = Math.hypot(va.x, va.y);
+    if (ua.kind === 'prop' && pb.getType() === 'dynamic' && pb.getMass() > 0.9 && ps > 12 && ps > Math.hypot(vb.x, vb.y) + 6
+      && (ub.part === 'head' || ub.part === 'chest' || ub.part === 'hip')) {
       const p = fb.getBody().getPosition();
-      const dmg = Math.min(35, (rel - 9) * 3 * Math.min(1.5, fa.getBody().getMass() / 1.5));
+      const dmg = Math.min(30, (ps - 10) * 2.5 * Math.min(1.5, pb.getMass() / 1.5));
       this.pending.push(() => {
-        ch.damage(dmg, null, 0.6);
+        ch.damage(dmg, null, 0.5);
         this.event(['thud', r2(p.x), r2(p.y), ch.player.id]);
       });
     }
@@ -447,7 +452,7 @@ class Game {
     const body = this.world.createBody({ type: 'dynamic', position: at, bullet: true, gravityScale: rocket ? 0.1 : 1, angle: c.aim, angularDamping: rocket ? 5 : 0.3 });
     body.createFixture(rocket ? pl.Box(0.24, 0.08) : pl.Circle(0.15), {
       density: rocket ? 2 : 4, restitution: rocket ? 0 : 0.4, friction: 0.5,
-      filterGroupIndex: c.group, filterCategoryBits: C.CAT_PROJ, filterMaskBits: C.CAT_WORLD | C.CAT_BODY,
+      filterGroupIndex: c.group, filterCategoryBits: C.CAT_PROJ, filterMaskBits: C.CAT_WORLD | C.CAT_PROP | C.CAT_BODY,
     });
     const cv = c.chest.getLinearVelocity(), w = C.WEAPONS[type];
     body.setLinearVelocity(V(dir.x * w.speed + (rocket ? 0 : cv.x * 0.5), dir.y * w.speed + (rocket ? 0 : cv.y * 0.3 + 2)));
@@ -509,7 +514,7 @@ class Game {
     const body = this.world.createBody({ type: 'dynamic', position: V(x, y), angularDamping: 0.6, bullet: !!fromChar });
     body.createFixture(pl.Box(0.42, 0.13), {
       density: 2, friction: 0.8, restitution: 0.2,
-      filterCategoryBits: C.CAT_ITEM, filterMaskBits: C.CAT_WORLD, filterGroupIndex: fromChar ? fromChar.group : 0,
+      filterCategoryBits: C.CAT_ITEM, filterMaskBits: C.CAT_WORLD | C.CAT_PROP, filterGroupIndex: fromChar ? fromChar.group : 0,
     });
     const item = { id, type, body, ammo, ttl: 40, noPick: 0, harm: 0, thrownBy: null };
     body.setUserData({ kind: 'item', item });
@@ -529,7 +534,7 @@ class Game {
     item.thrownBy = c;
     if (speed > 8) {
       item.harm = 0.9;
-      for (let f = item.body.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: c.group, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD | C.CAT_BODY });
+      for (let f = item.body.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: c.group, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD | C.CAT_PROP | C.CAT_BODY });
     }
     if (c.weapon.ammo <= 0) item.ttl = 2.5;
     c.weapon = null;
@@ -555,7 +560,7 @@ class Game {
       it.noPick = Math.max(0, it.noPick - DT);
       if (it.harm > 0) {
         it.harm -= DT;
-        if (it.harm <= 0) for (let f = it.body.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: 0, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD });
+        if (it.harm <= 0) for (let f = it.body.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: 0, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD | C.CAT_PROP });
       }
       const p = it.body.getPosition();
       if (it.ttl <= 0 || p.y < -15) { this.items.delete(it.id); this.world.destroyBody(it.body); continue; }

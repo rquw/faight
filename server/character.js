@@ -57,7 +57,9 @@ class Character {
   }
 
   build(x, y) {
-    const full = C.CAT_WORLD | C.CAT_BODY | C.CAT_PROJ;
+    const full = C.CAT_WORLD | C.CAT_PROP | C.CAT_BODY | C.CAT_PROJ;
+    // legs only touch solid level geometry while alive so they never snag on loose crates
+    const legMask = C.CAT_WORLD;
     const hy = y + REST + 0.05;
     this.hip = this.part('hip', V(x, hy), pl.Box(DIM.w + 0.01, DIM.hipHH), 12, full);
     const cy = hy + DIM.hipHH + DIM.chestHH;
@@ -80,8 +82,8 @@ class Character {
     const hp = V(x, hy - DIM.hipHH);
     this.legs = [];
     for (let i = 0; i < 2; i++) {
-      const u = this.part('ul', V(x, hp.y - DIM.uLegHH), pl.Box(DIM.w, DIM.uLegHH), 6, full);
-      const l = this.part('ll', V(x, hp.y - DIM.uLegHH * 2 - DIM.lLegHH), pl.Box(DIM.w, DIM.lLegHH), 6, full);
+      const u = this.part('ul', V(x, hp.y - DIM.uLegHH), pl.Box(DIM.w, DIM.uLegHH), 6, legMask);
+      const l = this.part('ll', V(x, hp.y - DIM.uLegHH * 2 - DIM.lLegHH), pl.Box(DIM.w, DIM.lLegHH), 6, legMask);
       J(this.hip, u, hp, -2.2, 2.2);
       J(u, l, V(x, hp.y - DIM.uLegHH * 2), -2.6, 2.6);
       this.legs.push({ u, l });
@@ -112,17 +114,20 @@ class Character {
     return [this.chest.getPosition(), this.hip.getPosition(), this.head.getPosition(), this.footPos(0), this.footPos(1)];
   }
 
-  castGround() {
+  castGround(move = 0) {
     const p = this.hip.getPosition();
     const len = REST + 0.55;
     let best = null;
-    for (const ox of [-0.18, 0, 0.18]) {
-      this.world.rayCast(V(p.x + ox, p.y), V(p.x + ox, p.y - len), (f, point, normal, frac) => {
+    const probes = [[-0.18, 0], [0, 0], [0.18, 0]];
+    // look ahead from higher up so low crates / steps are climbed instead of tripped over
+    if (move) probes.push([move * 0.45, 0.35]);
+    for (const [ox, oy] of probes) {
+      this.world.rayCast(V(p.x + ox, p.y + oy), V(p.x + ox, p.y - len), (f, point, normal, frac) => {
         if (f.isSensor()) return -1;
         const u = f.getBody().getUserData();
         if (u && (u.char === this || u.kind === 'item' || u.kind === 'proj')) return -1;
         if (u && u.kind === 'part' && (u.part === 'ua' || u.part === 'la')) return -1;
-        const d = frac * len;
+        const d = frac * (len + oy) - oy;
         if (!best || d < best.d) best = { d, point: V(point.x, point.y), fixture: f };
         return frac;
       });
@@ -199,12 +204,12 @@ class Character {
     if (ax * ax + ay * ay > 0.04) this.aim = Math.atan2(ay, ax);
     this.facing = Math.cos(this.aim) >= 0 ? 1 : -1;
 
-    const stunned = this.stun > 0;
+    const stunned = this.stun > 0, stunnedNow = stunned;
     const crouch = !!input.d && !frozen;
     const move = frozen ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
 
     // ---- support
-    const hit = this.jumpLock > 0 ? null : this.castGround();
+    const hit = this.jumpLock > 0 ? null : this.castGround(stunnedNow ? 0 : move);
     const rest = crouch ? CROUCH_REST : REST;
     this.grounded = false;
     this.groundFixture = null;
@@ -352,7 +357,7 @@ class Character {
     if (!this.alive) return;
     this.alive = false;
     this.hp = 0;
-    const mask = C.CAT_WORLD | C.CAT_BODY | C.CAT_PROJ;
+    const mask = C.CAT_WORLD | C.CAT_PROP | C.CAT_BODY | C.CAT_PROJ;
     for (const b of this.bodies) {
       for (let f = b.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: this.group, categoryBits: C.CAT_BODY, maskBits: mask });
       b.setAngularDamping(0.4);

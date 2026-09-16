@@ -3,6 +3,7 @@ module.exports = {
   CAT_BODY: 0x0002,
   CAT_ITEM: 0x0004,
   CAT_PROJ: 0x0008,
+  CAT_PROP: 0x0010,   // dynamic / kinematic level pieces
 
   // index in ORDER is the id sent to clients
   ORDER: ['pistol', 'ar', 'shotgun', 'sniper', 'rpg', 'minigun', 'grenade'],
