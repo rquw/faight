@@ -13,8 +13,20 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DIM = { hipHH: 0.17, chestHH: 0.2, headR: 0.24, uArmHH: 0.17, lArmHH: 0.16, uLegHH: 0.23, lLegHH: 0.23, w: 0.07 };
 const REST = 1.08;         // hip-center height above ground
 const CROUCH_REST = 0.78;
-const SPEED = 8;
-const JUMP = 14;
+
+// Movement rules follow Stick Fight: The Game (Landfall): a flat acceleration is pushed into every
+// body part while a key is held and drag limits the speed; a jump zeroes vertical velocity and adds a
+// fixed velocity; while airborne an extra gravity grows with time in the air (starts at 0.25 s after a
+// jump); fallen bodies lose their drag. SFTG's Unity values (jump 25, gravity ramp 4000 * fixedDt,
+// drag ~5.5) are scaled so one SFTG unit = 1.65 m, giving the same timing: apex after ~0.27 s,
+// ~0.67 s airtime, about two body heights high.
+const U = 1.65;
+const DRAG = 5.5;
+const GRAVITY = 9.81 * U;          // base gravity for a standing character
+const AIR_RAMP = 80 * U;           // extra m/s² per second spent in the air
+const JUMP = 25 * U;
+const RUN_ACCEL = 66;              // m/s² into every part -> ~12 m/s top speed with DRAG
+const WORLD_G = 28;
 
 class Character {
   constructor(game, player, x, y) {
@@ -25,8 +37,6 @@ class Character {
     this.hp = 100;
     this.group = -(player.num + 1);
     this.stun = 0;
-    this.jumpLock = 0;
-    this.coyote = 0;
     this.jumpBuffer = 0;
     this.grounded = false;
     this.groundFixture = null;
@@ -41,6 +51,13 @@ class Character {
     this.throwQueued = false;
     this.stepT = 0;
     this.stepLeg = 0;
+    this.drag = DRAG;
+    this.airGravity = 0;
+    this.sinceJumped = 1;
+    this.sinceGrounded = 0;
+    this.sinceWall = 1;
+    this.sinceFallen = 1;
+    this.lastWallSide = 0;
     this.wallSide = 0;
     this.lastHitBy = null;
     this.build(x, y);
@@ -189,95 +206,108 @@ class Character {
     const g = this.game;
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.pickupCd = Math.max(0, this.pickupCd - dt);
-    this.jumpLock = Math.max(0, this.jumpLock - dt);
     this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
-    this.stun = Math.max(0, this.stun - dt);
     this.punchT = Math.max(0, this.punchT - dt);
+    this.sinceJumped += dt;
+    this.sinceGrounded += dt;
+    this.sinceWall += dt;
+    const wasStunned = this.stun > 0;
+    this.stun = Math.max(0, this.stun - dt);
+    if (wasStunned && this.stun === 0) this.sinceFallen = 0;
+    this.sinceFallen += dt;
     const frozen = g.freeze > 0;
     const hip = this.hip, chest = this.chest;
     const v = chest.getLinearVelocity();
     const M = this.mass;
-    const grav = -g.world.getGravity().y;
+    const gScale = Math.abs(g.world.getGravity().y) / WORLD_G;   // moon maps scale everything
 
     const cp = chest.getPosition();
     const ax = input.ax - cp.x, ay = input.ay - (cp.y + 0.15);
     if (ax * ax + ay * ay > 0.04) this.aim = Math.atan2(ay, ax);
     this.facing = Math.cos(this.aim) >= 0 ? 1 : -1;
 
-    const stunned = this.stun > 0, stunnedNow = stunned;
+    const stunned = this.stun > 0;
     const crouch = !!input.d && !frozen;
-    const move = frozen ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
+    const move = frozen || stunned ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
 
-    // ---- support
-    const hit = this.jumpLock > 0 ? null : this.castGround(stunnedNow ? 0 : move);
+    // ---- drag & gravity like SFTG: fallen bodies go limp and drop with plain world gravity
+    const targetDrag = stunned ? 0 : DRAG;
+    this.drag += (targetDrag - this.drag) * Math.min(1, dt * (stunned ? 12 : 5));
+    const gs = stunned ? 0.75 : GRAVITY / WORLD_G;
+    for (const b of this.bodies) { b.setLinearDamping(this.drag); b.setGravityScale(gs); }
+
+    // ---- ground
+    const hit = this.sinceJumped < 0.2 ? null : this.castGround(stunned ? 0 : move);
     const rest = crouch ? CROUCH_REST : REST;
     this.grounded = false;
     this.groundFixture = null;
-    let gvx = 0, gvy = 0, ice = false;
+    let gvy = 0;
     if (hit && hit.d < rest + 0.2) {
       const hu = hit.fixture.getUserData() || {};
       const gb = hit.fixture.getBody();
+      this.grounded = true;
+      this.groundFixture = hit.fixture;
+      this.sinceGrounded = 0;
       if (hu.bounce && !stunned) {
         this.setAllVel(v.x, hu.bounce);
-        this.jumpLock = 0.25;
+        this.sinceJumped = 0;
         g.event(['bounce', r2(hit.point.x), r2(hit.point.y)]);
-      } else {
-        const gv = gb.getLinearVelocityFromWorldPoint(hit.point);
-        gvx = gv.x; gvy = gv.y;
-        ice = !!hu.ice;
-        this.grounded = true;
-        this.groundFixture = hit.fixture;
-        if (!stunned) {
-          const rel = hip.getLinearVelocity().y - gvy;
-          const acc = clamp(220 * (rest - hit.d) - 24 * rel + grav, 0, 75);
-          // lift from the neck: the body hangs below it like a puppet and self-rights
-          const ca = chest.getAngle(), cpos = chest.getPosition();
-          const neck = V(cpos.x - Math.sin(ca) * DIM.chestHH, cpos.y + Math.cos(ca) * DIM.chestHH);
-          chest.applyForce(V(0, acc * M), neck, true);
-          if (gb.getType() === 'dynamic') gb.applyForce(V(0, -Math.min(acc, grav * 1.5) * M), hit.point, true);
-        }
+      } else if (!stunned) {
+        gvy = gb.getLinearVelocityFromWorldPoint(hit.point).y;
+        if (hu.ice) for (const b of this.bodies) b.setLinearDamping(0.6);
+        // stand force, eased in after getting up (SFTG getUpCurve)
+        const getUp = Math.min(1, this.sinceFallen * 2);
+        const rel = hip.getLinearVelocity().y - gvy;
+        const acc = clamp((220 * (rest - hit.d) - 18 * rel) * getUp + GRAVITY * gScale, 0, 90);
+        const ca = chest.getAngle(), cpos = chest.getPosition();
+        const neck = V(cpos.x - Math.sin(ca) * DIM.chestHH, cpos.y + Math.cos(ca) * DIM.chestHH);
+        chest.applyForce(V(0, acc * M), neck, true);
+        if (gb.getType() === 'dynamic') gb.applyForce(V(0, -Math.min(acc, GRAVITY * 1.5) * M), hit.point, true);
       }
     }
-    if (this.grounded) this.coyote = 0.1; else this.coyote = Math.max(0, this.coyote - dt);
+
+    // ---- air gravity ramp
+    if (this.grounded) this.airGravity = 0;
+    else this.airGravity += dt;
+    if (!stunned && !this.grounded) {
+      const extra = this.airGravity * AIR_RAMP * gScale;
+      for (const b of this.bodies) b.applyForceToCenter(V(0, -extra * b.getMass()), true);
+    }
 
     if (stunned) return;
 
     // ---- spine upright (lean into movement)
-    const lean = clamp((v.x - gvx) * -0.025, -0.25, 0.25);
+    const lean = clamp(v.x * -0.02, -0.25, 0.25);
     this.turnTo(hip, lean * 0.5, 12, 0.8);
     this.turnTo(chest, lean, 12, 0.8);
     this.turnTo(this.head, 0, 6, 0.3);
 
-    // ---- horizontal movement
-    const speed = crouch && this.grounded ? SPEED * 0.45 : SPEED;
-    const target = move * speed + (this.grounded ? gvx : 0);
-    let accel;
-    if (this.grounded) accel = clamp((target - v.x) * (ice ? 1.5 : 16), ice ? -7 : -60, ice ? 7 : 60);
-    else accel = move ? clamp((target - v.x) * 9, -38, 38) : 0;
-    hip.applyForceToCenter(V(accel * M * 0.5, 0), true);
-    chest.applyForceToCenter(V(accel * M * 0.5, 0), true);
-    if (g.wind) chest.applyForceToCenter(V(g.wind * M, 0), true);
-    if (input.d && !this.grounded) hip.applyForceToCenter(V(0, -32 * M), true);
+    // ---- run: same push on the ground and in the air, drag does the limiting
+    if (move) for (const b of this.bodies) b.applyForceToCenter(V(move * RUN_ACCEL * b.getMass(), 0), true);
+    if (g.wind) for (const b of this.bodies) b.applyForceToCenter(V(g.wind * 2.5 * b.getMass(), 0), true);
+    if (input.d && !this.grounded) hip.applyForceToCenter(V(0, -90 * M), true);
 
     // ---- walls
     this.wallSide = 0;
     if (!this.grounded) {
       if (this.castWall(1)) this.wallSide = 1;
       else if (this.castWall(-1)) this.wallSide = -1;
-      if (this.wallSide && move === this.wallSide && v.y < -3) chest.applyForceToCenter(V(0, (-3 - v.y) * 10 * M), true);
+      if (this.wallSide) this.sinceWall = 0;
+      this.lastWallSide = this.wallSide || this.lastWallSide;
     }
 
-    // ---- jump
-    if (this.jumpBuffer > 0 && !frozen) {
-      if (this.coyote > 0) {
-        this.setAllVel(v.x, JUMP + Math.max(0, gvy));
-        if (hit && hit.fixture.getBody().getType() === 'dynamic') hit.fixture.getBody().applyLinearImpulse(V(0, -M * 4), hit.point, true);
-        this.jumpBuffer = 0; this.coyote = 0; this.jumpLock = 0.22;
-        g.event(['jump', r2(hip.getPosition().x), r2(hip.getPosition().y - REST)]);
-      } else if (this.wallSide) {
-        this.setAllVel(-this.wallSide * 9, JUMP * 0.95);
-        this.jumpBuffer = 0; this.jumpLock = 0.2;
+    // ---- jump (SFTG: grounded or on a wall in the last 0.2 s, at most every 0.3 s)
+    if (this.jumpBuffer > 0 && !frozen && this.sinceJumped > 0.3 && (this.sinceGrounded < 0.2 || this.sinceWall < 0.2)) {
+      const wall = this.sinceWall < this.sinceGrounded;
+      for (const b of this.bodies) {
+        const bv = b.getLinearVelocity();
+        if (wall) b.setLinearVelocity(V(bv.x - this.lastWallSide * JUMP * 0.75, JUMP * 0.85));
+        else b.setLinearVelocity(V(bv.x, JUMP + Math.max(0, gvy)));
       }
+      if (!wall && hit && hit.fixture.getBody().getType() === 'dynamic') hit.fixture.getBody().applyLinearImpulse(V(0, -M * 6), hit.point, true);
+      this.airGravity = 0.25;
+      this.jumpBuffer = 0; this.sinceJumped = 0; this.sinceGrounded = 1; this.sinceWall = 1;
+      g.event(['jump', r2(hip.getPosition().x), r2(hip.getPosition().y - REST)]);
     }
 
     this.legForces(dt, move, crouch);
@@ -286,15 +316,16 @@ class Character {
 
   legForces(dt, move, crouch) {
     const f = this.facing;
+    this.stepT += dt;
     let t0, t1, k0, k1, grip = 0.9;
     if (!this.grounded) {
       t0 = f * 0.45; t1 = -f * 0.2; k0 = -f * 0.2; k1 = -f * 0.55; grip = 0.35;
     } else if (crouch) {
       t0 = f * 1.1; t1 = f * 0.5; k0 = -f * 0.35; k1 = -f * 0.75;
     } else if (move) {
-      // alternate which leg is thrown forward; the physics does the rest
-      this.stepT -= dt;
-      if (this.stepT <= 0) { this.stepT = 0.15; this.stepLeg = 1 - this.stepLeg; }
+      // SFTG StepController: swap the forward leg once the legs are spread wide enough
+      const spread = Math.abs(wrap(this.legs[0].u.getAngle() - this.legs[1].u.getAngle()));
+      if (spread > 1.05 && this.stepT > 0.16) { this.stepT = 0; this.stepLeg = 1 - this.stepLeg; }
       const fwd = move * 0.75, back = -move * 0.5;
       const a = this.stepLeg === 0 ? fwd : back, b = this.stepLeg === 0 ? back : fwd;
       t0 = a; t1 = b; k0 = a - move * 0.45; k1 = b - move * 0.2;
@@ -338,11 +369,12 @@ class Character {
     }
   }
 
-  push(ix, iy) {
-    // spread an impulse over the core so the whole body reacts
-    this.chest.applyLinearImpulse(V(ix * 0.45, iy * 0.45), this.chest.getWorldCenter(), true);
-    this.hip.applyLinearImpulse(V(ix * 0.35, iy * 0.35), this.hip.getWorldCenter(), true);
-    this.head.applyLinearImpulse(V(ix * 0.2, iy * 0.2), this.head.getWorldCenter(), true);
+  // knock the whole body: core takes the full velocity change, limbs a bit less so it flops
+  kick(dvx, dvy) {
+    for (let i = 0; i < this.bodies.length; i++) {
+      const b = this.bodies[i], k = i < 3 ? 1 : 0.75, v = b.getLinearVelocity();
+      b.setLinearVelocity(V(v.x + dvx * k, v.y + dvy * k));
+    }
   }
 
   damage(amount, by, stun = 0) {
@@ -361,6 +393,8 @@ class Character {
     for (const b of this.bodies) {
       for (let f = b.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: this.group, categoryBits: C.CAT_BODY, maskBits: mask });
       b.setAngularDamping(0.4);
+      b.setLinearDamping(0);
+      b.setGravityScale(0.75);
     }
     if (this.weapon) this.game.throwWeapon(this, 3);
     this.game.onDeath(this, by && by !== this ? by : this.lastHitBy);

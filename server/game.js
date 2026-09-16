@@ -221,7 +221,7 @@ class Game {
       item.harm = 0;
       this.pending.push(() => {
         ch.damage(15, item.thrownBy, 0.6);
-        ch.push(va.x * 2, 8);
+        ch.kick(va.x * 0.3, 4);
         this.event(['thud', r2(fb.getBody().getPosition().x), r2(fb.getBody().getPosition().y), ch.player.id]);
       });
     }
@@ -371,7 +371,7 @@ class Game {
   fire(c, type, w) {
     const { dir, end } = this.muzzle(c, w);
     const tIdx = C.ORDER.indexOf(type);
-    c.push(-dir.x * w.recoil, -dir.y * w.recoil * 0.5);
+    c.kick(-dir.x * w.recoil, -dir.y * w.recoil * 0.6);
     this.event(['fire', c.player.id, tIdx, r2(end.x), r2(end.y), Math.round(c.aim * 100)]);
     if (type === 'rpg' || type === 'grenade') { this.spawnProj(c, type, end, dir); return; }
     for (let i = 0; i < w.pellets; i++) {
@@ -409,7 +409,7 @@ class Game {
         victim = ch.player.id;
         if (ch.alive) ch.damage(b.w.dmg * (u.part === 'head' ? 1.5 : 1), b.owner, b.w.stun || (b.w.pellets > 1 ? 0.15 : 0));
         body.applyLinearImpulse(V(dx * kb * 0.3, dy * kb * 0.3), best.point, true);
-        ch.push(dx * kb, dy * kb + kb * 0.15);
+        ch.kick(dx * kb, dy * kb + kb * 0.2);
       } else if (body.getType() === 'dynamic') {
         body.applyLinearImpulse(V(dx * kb * 0.5, dy * kb * 0.5), best.point, true);
       }
@@ -419,7 +419,7 @@ class Game {
   }
 
   punch(c) {
-    c.cooldown = 0.34;
+    c.cooldown = 0.3;
     c.punchT = 0.13;
     c.punchArm = 1 - c.punchArm;
     const s = c.shoulder();
@@ -434,9 +434,12 @@ class Game {
       if (u.kind === 'part') hitChars.add(u.char); else hitBodies.add(b);
       return true;
     });
+    if (hitChars.size) c.kick(dir.x * 4, dir.y * 4);   // attacker lunges into the hit
     for (const ch of hitChars) {
-      if (ch.alive) ch.damage(10, c, ch.stun > 0 ? 0.45 : 0.25);
-      ch.push(dir.x * 38, dir.y * 38 + 10);
+      if (ch.alive) ch.damage(22.5, c, ch.stun > 0 ? 0.3 : 0);
+      ch.kick(dir.x * 14, dir.y * 14 + 3);
+      ch.airGravity = 0;                               // victims float for a moment
+      ch.sinceGrounded = 0;
       this.event(['ph', r2(center.x), r2(center.y), ch.player.id, Math.round(c.aim * 100)]);
     }
     for (const b of hitBodies) {

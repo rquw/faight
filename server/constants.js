@@ -7,14 +7,15 @@ module.exports = {
 
   // index in ORDER is the id sent to clients
   ORDER: ['pistol', 'ar', 'shotgun', 'sniper', 'rpg', 'minigun', 'grenade'],
-  // speed: bullet m/s, life: bullet seconds, len: muzzle distance from hand
+  // speed: bullet m/s, life: bullet seconds, len: muzzle distance from hand,
+  // kb: velocity (m/s) given to the victim, recoil: velocity given to the shooter
   WEAPONS: {
-    pistol:  { ammo: 12, cd: 0.28, dmg: 20, kb: 7,  speed: 75,  life: 1.0, spread: 0.015, pellets: 1, recoil: 6,  auto: false, weight: 22, len: 0.38 },
-    ar:      { ammo: 30, cd: 0.09, dmg: 9,  kb: 4,  speed: 85,  life: 1.0, spread: 0.05,  pellets: 1, recoil: 4,  auto: true,  weight: 20, len: 0.8, twoHand: true },
-    shotgun: { ammo: 6,  cd: 0.8,  dmg: 9,  kb: 8,  speed: 60,  life: 0.32,spread: 0.2,   pellets: 7, recoil: 40, auto: false, weight: 18, len: 0.85, twoHand: true },
-    sniper:  { ammo: 4,  cd: 1.3,  dmg: 75, kb: 55, speed: 170, life: 1.0, spread: 0,     pellets: 1, recoil: 35, auto: false, weight: 10, len: 1.15, twoHand: true, stun: 0.9 },
-    rpg:     { ammo: 2,  cd: 1.1,  dmg: 70, kb: 0,  speed: 26,  life: 4,   spread: 0,     pellets: 0, recoil: 35, auto: false, weight: 8,  len: 1.0, twoHand: true },
-    minigun: { ammo: 90, cd: 0.05, dmg: 5,  kb: 3,  speed: 80,  life: 1.0, spread: 0.12,  pellets: 1, recoil: 7,  auto: true,  weight: 8,  len: 0.9, twoHand: true, spinup: 0.4 },
+    pistol:  { ammo: 12, cd: 0.28, dmg: 20, kb: 3.2, speed: 75,  life: 1.0, spread: 0.015, pellets: 1, recoil: 1.5, auto: false, weight: 22, len: 0.38 },
+    ar:      { ammo: 30, cd: 0.09, dmg: 9,  kb: 1.8, speed: 85,  life: 1.0, spread: 0.05,  pellets: 1, recoil: 0.8, auto: true,  weight: 20, len: 0.8, twoHand: true },
+    shotgun: { ammo: 6,  cd: 0.8,  dmg: 9,  kb: 2.6, speed: 60,  life: 0.32,spread: 0.2,   pellets: 7, recoil: 9,  auto: false, weight: 18, len: 0.85, twoHand: true },
+    sniper:  { ammo: 4,  cd: 1.3,  dmg: 75, kb: 20,  speed: 170, life: 1.0, spread: 0,     pellets: 1, recoil: 10, auto: false, weight: 10, len: 1.15, twoHand: true, stun: 0.9 },
+    rpg:     { ammo: 2,  cd: 1.1,  dmg: 70, kb: 0,   speed: 26,  life: 4,   spread: 0,     pellets: 0, recoil: 9,  auto: false, weight: 8,  len: 1.0, twoHand: true },
+    minigun: { ammo: 90, cd: 0.05, dmg: 5,  kb: 1.2, speed: 80,  life: 1.0, spread: 0.12,  pellets: 1, recoil: 1.3, auto: true,  weight: 8,  len: 0.9, twoHand: true, spinup: 0.4 },
     grenade: { ammo: 3,  cd: 0.7,  dmg: 55, kb: 0,  speed: 15,  life: 2.2, spread: 0,     pellets: 0, recoil: 0,  auto: false, weight: 13, len: 0.15 },
   },
 
