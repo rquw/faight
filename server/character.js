@@ -18,14 +18,14 @@ const CROUCH_REST = 0.78;
 // body part while a key is held and drag limits the speed; a jump zeroes vertical velocity and adds a
 // fixed velocity; while airborne an extra gravity grows with time in the air (starts at 0.25 s after a
 // jump); fallen bodies lose their drag. SFTG's Unity values (jump 25, gravity ramp 4000 * fixedDt,
-// drag ~5.5) are scaled so one SFTG unit = 1.65 m, giving the same timing: apex after ~0.27 s,
-// ~0.67 s airtime, about two body heights high.
-const U = 1.65;
-const DRAG = 5.5;
+// drag ~8) are scaled so one SFTG unit = 2.17 m, giving the same timing: apex after ~0.22 s,
+// ~0.62 s airtime, about two body heights high.
+const U = 2.17;
+const DRAG = 8;
 const GRAVITY = 9.81 * U;          // base gravity for a standing character
 const AIR_RAMP = 80 * U;           // extra m/s² per second spent in the air
 const JUMP = 25 * U;
-const RUN_ACCEL = 66;              // m/s² into every part -> ~12 m/s top speed with DRAG
+const RUN_ACCEL = 96;              // m/s² into every part -> 12 m/s top speed with DRAG
 const WORLD_G = 28;
 
 class Character {
@@ -168,7 +168,29 @@ class Character {
     return hit;
   }
 
-  jumpPressed() { this.jumpBuffer = 0.15; }
+  jumpPressed() { this.jumpBuffer = 0.1; }
+
+  // SFTG CheckForGroundCollision: contact normal within 75° of up = ground, 75°-95° = wall
+  touchContacts() {
+    let ground = false, wall = 0;
+    for (const b of this.bodies) {
+      for (let ce = b.getContactList(); ce; ce = ce.next) {
+        const c = ce.contact;
+        if (!c.isTouching()) continue;
+        const other = ce.other, u = other.getUserData() || {};
+        if (u.char === this || u.kind === 'item' || u.kind === 'proj') continue;
+        const wm = c.getWorldManifold(null);
+        if (!wm) continue;
+        let nx = wm.normal.x, ny = wm.normal.y;
+        if (c.getFixtureA().getBody() === b) { nx = -nx; ny = -ny; }   // normal pointing at us
+        const ang = Math.acos(Math.max(-1, Math.min(1, ny))) * 180 / Math.PI;
+        if (ang > 95) continue;
+        if (ang > 75) wall = nx > 0 ? -1 : 1;
+        else ground = true;
+      }
+    }
+    return { ground, wall };
+  }
 
   // spring a body's center toward a target point that moves with the chest
   pullTo(b, tx, ty, w, maxA) {
@@ -242,6 +264,8 @@ class Character {
     this.grounded = false;
     this.groundFixture = null;
     let gvy = 0;
+    const touch = this.sinceJumped > 0.2 ? this.touchContacts() : { ground: false, wall: 0 };
+    if (touch.ground) this.sinceGrounded = 0;
     if (hit && hit.d < rest + 0.2) {
       const hu = hit.fixture.getUserData() || {};
       const gb = hit.fixture.getBody();
@@ -267,7 +291,7 @@ class Character {
     }
 
     // ---- air gravity ramp
-    if (this.grounded) this.airGravity = 0;
+    if (this.grounded || touch.ground) this.airGravity = 0;
     else this.airGravity += dt;
     if (!stunned && !this.grounded) {
       const extra = this.airGravity * AIR_RAMP * gScale;
@@ -290,8 +314,7 @@ class Character {
     // ---- walls
     this.wallSide = 0;
     if (!this.grounded) {
-      if (this.castWall(1)) this.wallSide = 1;
-      else if (this.castWall(-1)) this.wallSide = -1;
+      this.wallSide = touch.wall || (this.castWall(1) ? 1 : this.castWall(-1) ? -1 : 0);
       if (this.wallSide) this.sinceWall = 0;
       this.lastWallSide = this.wallSide || this.lastWallSide;
     }
@@ -369,16 +392,18 @@ class Character {
     }
   }
 
-  // knock the whole body: core takes the full velocity change, limbs a bit less so it flops
-  kick(dvx, dvy) {
+  // knock the whole body: core takes the full velocity change, limbs a bit less so it flops.
+  // SFTG "weakness": the more damage taken, the further you fly
+  kick(dvx, dvy, weak = true) {
+    const w = !weak ? 1 : this.alive ? 1 + (100 - Math.max(0, this.hp)) / 100 : 0.5;
     for (let i = 0; i < this.bodies.length; i++) {
-      const b = this.bodies[i], k = i < 3 ? 1 : 0.75, v = b.getLinearVelocity();
+      const b = this.bodies[i], k = (i < 3 ? 1 : 0.75) * w, v = b.getLinearVelocity();
       b.setLinearVelocity(V(v.x + dvx * k, v.y + dvy * k));
     }
   }
 
   damage(amount, by, stun = 0) {
-    if (!this.alive || this.game.freeze > 0) return;
+    if (!this.alive || this.game.freeze > 0 || this.game.time < 1.3) return;   // SFTG: 0.5 s spawn protection
     this.hp -= amount;
     if (by && by !== this) this.lastHitBy = by;
     this.stun = Math.max(this.stun, stun);

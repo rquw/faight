@@ -233,7 +233,7 @@ class Game {
       const p = fb.getBody().getPosition();
       const dmg = Math.min(30, (ps - 10) * 2.5 * Math.min(1.5, pb.getMass() / 1.5));
       this.pending.push(() => {
-        ch.damage(dmg, null, 0.5);
+        ch.damage(dmg, null, 0.4);
         this.event(['thud', r2(p.x), r2(p.y), ch.player.id]);
       });
     }
@@ -273,7 +273,7 @@ class Game {
     this.cleanup();
     this.roundLogic();
 
-    if (this.tickN % (this.chars.length > 10 ? 3 : 2) === 0) this.sendSnapshot();
+    if (this.tickN % (this.chars.length > 16 ? 3 : this.chars.length > 8 ? 2 : 1) === 0) this.sendSnapshot();
   }
 
   checkHazards() {
@@ -287,11 +287,17 @@ class Game {
           for (const pt of c.probePoints()) if (f.testPoint(pt)) { hz = (f.getUserData() || {}).hazard; break outer; }
         }
       }
-      if (hz) {
+      if (hz === 'lava') {
+        if (this.time - (c.lastLava || -1) >= 0.3) {
+          c.lastLava = this.time;
+          this.event(['hz', hz, r2(p.x), r2(p.y)]);
+          c.kick(0, 22, false);
+          c.damage(35, c.lastHitBy);
+        }
+      } else if (hz) {
         this.event(['hz', hz, r2(p.x), r2(p.y)]);
         c.die(null);
-        const up = hz === 'lava' ? 14 : 8;
-        for (const b of c.bodies) b.setLinearVelocity(V((Math.random() - 0.5) * 6, up + Math.random() * 4));
+        for (const b of c.bodies) b.setLinearVelocity(V((Math.random() - 0.5) * 6, 8 + Math.random() * 4));
       }
     }
   }
@@ -371,7 +377,7 @@ class Game {
   fire(c, type, w) {
     const { dir, end } = this.muzzle(c, w);
     const tIdx = C.ORDER.indexOf(type);
-    c.kick(-dir.x * w.recoil, -dir.y * w.recoil * 0.6);
+    c.kick(-dir.x * w.recoil, -dir.y * w.recoil * 0.6, false);
     this.event(['fire', c.player.id, tIdx, r2(end.x), r2(end.y), Math.round(c.aim * 100)]);
     if (type === 'rpg' || type === 'grenade') { this.spawnProj(c, type, end, dir); return; }
     for (let i = 0; i < w.pellets; i++) {
@@ -383,10 +389,31 @@ class Game {
     }
   }
 
+  // does the segment a->b pass within r of the gun held by c?
+  hitsGun(c, ax, ay, bx, by) {
+    const w = C.WEAPONS[c.weapon.type], h = c.handPos(0);
+    const gx = Math.cos(c.aim), gy = Math.sin(c.aim);
+    const len = Math.max(0.35, w.len + 0.2);
+    for (let t = 0; t <= 1; t += 0.25) {
+      const px = h.x + gx * len * t, py = h.y + gy * len * t;
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+      const k = clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1);
+      if (Math.hypot(ax + dx * k - px, ay + dy * k - py) < 0.13) return true;
+    }
+    return false;
+  }
+
   updateBullets() {
     const keep = [];
     for (const b of this.bullets) {
       const nx = b.x + b.vx * DT, ny = b.y + b.vy * DT;
+      const gunHit = this.chars.find(c => c.alive && c.weapon && c !== b.owner && this.hitsGun(c, b.x, b.y, nx, ny));
+      if (gunHit) {
+        const h = gunHit.handPos(0);
+        this.event(['bh', b.id, r2(h.x), r2(h.y), -1]);
+        this.throwWeapon(gunHit, 5);
+        continue;
+      }
       let best = null;
       this.world.rayCast(V(b.x, b.y), V(nx, ny), (f, point, normal, frac) => {
         if (f.isSensor()) return -1;
@@ -407,7 +434,7 @@ class Game {
       if (u.kind === 'part') {
         const ch = u.char;
         victim = ch.player.id;
-        if (ch.alive) ch.damage(b.w.dmg * (u.part === 'head' ? 1.5 : 1), b.owner, b.w.stun || (b.w.pellets > 1 ? 0.15 : 0));
+        if (ch.alive) ch.damage(b.w.dmg * (u.part === 'head' ? 1.5 : 1), b.owner);
         body.applyLinearImpulse(V(dx * kb * 0.3, dy * kb * 0.3), best.point, true);
         ch.kick(dx * kb, dy * kb + kb * 0.2);
       } else if (body.getType() === 'dynamic') {
@@ -434,10 +461,10 @@ class Game {
       if (u.kind === 'part') hitChars.add(u.char); else hitBodies.add(b);
       return true;
     });
-    if (hitChars.size) c.kick(dir.x * 4, dir.y * 4);   // attacker lunges into the hit
+    if (hitChars.size) c.kick(dir.x * 6, dir.y * 6, false);   // attacker lunges into the hit
     for (const ch of hitChars) {
-      if (ch.alive) ch.damage(22.5, c, ch.stun > 0 ? 0.3 : 0);
-      ch.kick(dir.x * 14, dir.y * 14 + 3);
+      if (ch.alive) ch.damage(22.5, c);
+      ch.kick(dir.x * 20, dir.y * 20 + 4);
       ch.airGravity = 0;                               // victims float for a moment
       ch.sinceGrounded = 0;
       this.event(['ph', r2(center.x), r2(center.y), ch.player.id, Math.round(c.aim * 100)]);
@@ -507,7 +534,7 @@ class Game {
     for (const [ch, f] of charsHit) {
       if (!ch.alive) continue;
       const k = clamp(f * 1.35, 0, 1);
-      ch.damage(dmg * k * (ch === owner ? 0.6 : 1), owner, 0.6 + k);
+      ch.damage(dmg * k * (ch === owner ? 0.6 : 1), owner, 1.6 * k);
     }
   }
 

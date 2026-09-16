@@ -4,7 +4,7 @@ const WEAPONS = ['pistol', 'ar', 'shotgun', 'sniper', 'rpg', 'minigun', 'grenade
 // half lengths per body: hip, chest, head, ua0, la0, ua1, la1, ul0, ll0, ul1, ll1
 const HH = [0.17, 0.2, 0, 0.17, 0.16, 0.17, 0.16, 0.23, 0.23, 0.23, 0.23];
 const HEAD_R = 0.27, LW = 0.2;
-const INTERP = 0.12;
+let INTERP = 0.1, snapGap = 1 / 30, lastSnapAt = 0;
 const KICK = { pistol: 2.2, ar: 1.1, shotgun: 6, sniper: 9, rpg: 6, minigun: 0.7, grenade: 0.5 };
 
 const $ = (id) => document.getElementById(id);
@@ -84,7 +84,6 @@ function onMessage(m) {
       map.deco = makeDeco(m);
       mapT = 0;
       snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear();
-      cam.snap = true;
       fade = 1;
       banner = null;
       break;
@@ -107,6 +106,9 @@ function renderScores() {
 // ---------------------------------------------------------------- snapshots
 function onSnap(s) {
   const now = performance.now() / 1000;
+  if (lastSnapAt) snapGap += (Math.min(0.2, now - lastSnapAt) - snapGap) * 0.1;
+  lastSnapAt = now;
+  INTERP = Math.max(0.04, Math.min(0.14, snapGap * 2.2));
   const t = s.tm / 1000;
   if (clockOffset === null || !snaps.length) clockOffset = t - now;
   else clockOffset += ((t - now) - clockOffset) * 0.05;
@@ -166,34 +168,15 @@ function sendInput() {
 }
 setInterval(sendInput, 33);
 
-// ---------------------------------------------------------------- camera (follows everyone, springy shake)
-const cam = { cx: 0, cy: 0, vh: 20, s: 20, snap: true, ox: 0, oy: 0, vx: 0, vy: 0, rot: 0, vr: 0 };
+// ---------------------------------------------------------------- camera: always the whole map, springy shake
+const cam = { cx: 0, cy: 0, s: 20, ox: 0, oy: 0, vx: 0, vy: 0, rot: 0, vr: 0 };
 function kick(dx, dy, mag) { cam.vx += dx * mag; cam.vy += dy * mag; }
 function kickRot(mag) { cam.vr += (Math.random() - 0.5) * mag; }
 
-function updateCam(dt, players) {
-  const aspect = W / H;
-  const fullVH = Math.max(map.H + 3, (map.W + 3) / aspect);
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const p of players) {
-    if (!p[1]) continue;
-    const x = p[6 + 3] / 100, y = p[7 + 3] / 100;
-    minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-  }
-  let tx = map.W / 2, ty = map.H / 2, tvh = fullVH;
-  if (minX < Infinity) {
-    const need = Math.max((maxX - minX + 16) / aspect, maxY - minY + 11, 19);
-    tvh = Math.min(need, fullVH);
-    tx = (minX + maxX) / 2; ty = (minY + maxY) / 2 + 1;
-    const hw = tvh * aspect / 2, hh = tvh / 2;
-    tx = map.W + 3 > hw * 2 ? Math.max(hw - 1.5, Math.min(map.W + 1.5 - hw, tx)) : map.W / 2;
-    ty = map.H + 3 > hh * 2 ? Math.max(hh - 2, Math.min(map.H + 1 - hh, ty)) : map.H / 2;
-  }
-  if (cam.snap) { cam.cx = tx; cam.cy = ty; cam.vh = tvh; cam.snap = false; }
-  const k = Math.min(1, dt * 2.5);
-  cam.cx += (tx - cam.cx) * k; cam.cy += (ty - cam.cy) * k; cam.vh += (tvh - cam.vh) * Math.min(1, dt * 1.8);
-  cam.s = H / cam.vh;
-  // shake spring
+function updateCam(dt) {
+  cam.s = Math.min(W / (map.W + 2), H / (map.H + 2.5));
+  cam.cx = map.W / 2;
+  cam.cy = map.H / 2 + 0.25;
   cam.vx += (-260 * cam.ox - 13 * cam.vx) * dt; cam.vy += (-260 * cam.oy - 13 * cam.vy) * dt;
   cam.ox += cam.vx * dt; cam.oy += cam.vy * dt;
   cam.vr += (-300 * cam.rot - 14 * cam.vr) * dt; cam.rot += cam.vr * dt;
@@ -590,7 +573,7 @@ function frame() {
     }
     players.push(out);
   }
-  updateCam(dt, players);
+  updateCam(dt);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.translate(W / 2, H / 2);
