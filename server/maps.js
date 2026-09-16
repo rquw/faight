@@ -157,7 +157,7 @@ const maps = [
       m.wall(X(0.34), 10.5, 12.6, 0.6); m.wall(X(0.66), 10.5, 12.6, 0.6);
       m.block(X(0.25), 10.5, X(0.25) + 1.5, 11.6); m.block(X(0.75) - 1.5, 10.5, X(0.75), 11.6);
       // water tower
-      m.wall(X(0.45) + 0.2, 5, 11, 0.25); m.wall(X(0.55) - 0.2, 5, 11, 0.25);
+      m.wall(X(0.45) + 0.2, 8.4, 11, 0.25); m.wall(X(0.55) - 0.2, 8.4, 11, 0.25);
       m.floor(X(0.44), X(0.56), 11.5, 0.5);
       m.block(X(0.46), 11.5, X(0.54), 14);
       m.crates(X(0.5), 5, 2, 1, 1);
@@ -210,7 +210,7 @@ const maps = [
       const ice = { ice: true, color: '#2f4552' };
       m.floor(X(0.05), X(0.95), 3, 3, ice);
       // igloo
-      m.wall(X(0.44), 4.9, 5.8, 0.6, ice); m.wall(X(0.56), 3, 5.8, 0.6, ice);
+      m.wall(X(0.44), 5.6, 5.8, 0.6, ice); m.wall(X(0.56), 5.6, 5.8, 0.6, ice);
       m.floor(X(0.43), X(0.57), 6.4, 0.6, ice);
       m.rect(X(0.24), 7, X(0.2), 0.6, Object.assign({ angle: 0.22 }, ice));
       m.rect(X(0.76), 7, X(0.2), 0.6, Object.assign({ angle: -0.22 }, ice));
@@ -247,7 +247,7 @@ const maps = [
       m.floor(X(0.06), X(0.94), 4, 4);
       for (const c of [0.2, 0.5, 0.8]) {
         m.floor(X(c - 0.08), X(c + 0.08), 9, 0.7);
-        m.wall(X(c - 0.08) + 0.2, 4, 8.3, 0.35); m.wall(X(c + 0.08) - 0.2, 4, 8.3, 0.35);
+        m.wall(X(c - 0.08) + 0.2, 7, 8.3, 0.35); m.wall(X(c + 0.08) - 0.2, 7, 8.3, 0.35);
         m.spawnRow(X(c - 0.07), X(c + 0.07), 4);
       }
       m.floor(X(0.01), X(0.08), 11, 0.5); m.floor(X(0.92), X(0.99), 11, 0.5);
@@ -296,7 +296,7 @@ const maps = [
         const a = side ? X(0.75) : X(0.03), b = side ? X(0.97) : X(0.25);
         m.block(a, 0, b, 6);
         m.wall(side ? b - 0.3 : a + 0.3, 6, 10);
-        m.wall(side ? a + 0.3 : b - 0.3, 8, 10);
+        m.wall(side ? a + 0.3 : b - 0.3, 8.8, 10);
         m.floor(a, b, 10.6, 0.6);
         m.block(side ? a + 2 : b - 3.2, 6, side ? a + 3.2 : b - 2, 7.2);
         m.floor(side ? X(0.8) : X(0.1), side ? X(0.92) : X(0.2), 15, 0.5);
