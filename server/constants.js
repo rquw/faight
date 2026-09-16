@@ -6,16 +6,17 @@ module.exports = {
 
   // index in ORDER is the id sent to clients
   ORDER: ['pistol', 'ar', 'shotgun', 'sniper', 'rpg', 'minigun', 'grenade'],
+  // speed: bullet m/s, life: bullet seconds, len: muzzle distance from hand
   WEAPONS: {
-    pistol:  { ammo: 12, cd: 0.32, dmg: 21, kb: 4,   spread: 0.02, pellets: 1, recoil: 4,   auto: false, weight: 22 },
-    ar:      { ammo: 30, cd: 0.1,  dmg: 10, kb: 2.5, spread: 0.05, pellets: 1, recoil: 3,   auto: true,  weight: 20, twoHand: true },
-    shotgun: { ammo: 6,  cd: 0.85, dmg: 9,  kb: 5,   spread: 0.2,  pellets: 7, recoil: 32,  auto: false, weight: 18, twoHand: true, range: 16 },
-    sniper:  { ammo: 4,  cd: 1.3,  dmg: 68, kb: 30,  spread: 0,    pellets: 1, recoil: 30,  auto: false, weight: 10, twoHand: true, stun: 0.7 },
-    rpg:     { ammo: 2,  cd: 1.1,  dmg: 62, kb: 0,   spread: 0,    pellets: 0, recoil: 28,  auto: false, weight: 8,  twoHand: true },
-    minigun: { ammo: 90, cd: 0.055,dmg: 5,  kb: 1.6, spread: 0.13, pellets: 1, recoil: 5.5, auto: true,  weight: 8,  twoHand: true, spinup: 0.45 },
-    grenade: { ammo: 3,  cd: 0.7,  dmg: 55, kb: 0,   spread: 0,    pellets: 0, recoil: 0,   auto: false, weight: 13 },
+    pistol:  { ammo: 12, cd: 0.28, dmg: 20, kb: 7,  speed: 75,  life: 1.0, spread: 0.015, pellets: 1, recoil: 6,  auto: false, weight: 22, len: 0.38 },
+    ar:      { ammo: 30, cd: 0.09, dmg: 9,  kb: 4,  speed: 85,  life: 1.0, spread: 0.05,  pellets: 1, recoil: 4,  auto: true,  weight: 20, len: 0.8, twoHand: true },
+    shotgun: { ammo: 6,  cd: 0.8,  dmg: 9,  kb: 8,  speed: 60,  life: 0.32,spread: 0.2,   pellets: 7, recoil: 40, auto: false, weight: 18, len: 0.85, twoHand: true },
+    sniper:  { ammo: 4,  cd: 1.3,  dmg: 75, kb: 55, speed: 170, life: 1.0, spread: 0,     pellets: 1, recoil: 35, auto: false, weight: 10, len: 1.15, twoHand: true, stun: 0.9 },
+    rpg:     { ammo: 2,  cd: 1.1,  dmg: 70, kb: 0,  speed: 26,  life: 4,   spread: 0,     pellets: 0, recoil: 35, auto: false, weight: 8,  len: 1.0, twoHand: true },
+    minigun: { ammo: 90, cd: 0.05, dmg: 5,  kb: 3,  speed: 80,  life: 1.0, spread: 0.12,  pellets: 1, recoil: 7,  auto: true,  weight: 8,  len: 0.9, twoHand: true, spinup: 0.4 },
+    grenade: { ammo: 3,  cd: 0.7,  dmg: 55, kb: 0,  speed: 15,  life: 2.2, spread: 0,     pellets: 0, recoil: 0,  auto: false, weight: 13, len: 0.15 },
   },
 
-  COLORS: ['#f7c325', '#3d8bff', '#ff4b4b', '#39d05c', '#ff7ad9', '#ff9a2e', '#9b6bff', '#2ee6e6',
-    '#f2f2f2', '#b07a4a', '#c6ff3d', '#1f9e8f', '#ff2e7e', '#7f8cff', '#e0b0ff', '#8a8a8a'],
+  COLORS: ['#f2c12e', '#3f7fd9', '#d9443b', '#5bb84a', '#e46fc0', '#ef8a2e', '#8a5fd6', '#39c1c9',
+    '#e8e8e8', '#9c6b43', '#b5d63c', '#2f8f7f', '#e0457b', '#6b7bd9', '#c9a0e8', '#7d7d7d'],
 };

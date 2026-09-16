@@ -1,7 +1,7 @@
 const pl = require('planck');
 const C = require('./constants');
 const MAPS = require('./maps');
-const { Character, DIM } = require('./character');
+const { Character } = require('./character');
 const V = pl.Vec2;
 
 const DT = 1 / 60;
@@ -12,13 +12,14 @@ const i100 = (n) => Math.round(n * 100);
 class Game {
   constructor(code) {
     this.code = code;
-    this.players = new Map();   // id -> {id, num, name, color, score, ws, input, prev, char}
+    this.players = new Map();
     this.nextId = 1;
     this.world = null;
     this.chars = [];
     this.props = new Map();
     this.items = new Map();
     this.projs = new Map();
+    this.bullets = [];
     this.events = [];
     this.tickN = 0;
     this.lastMap = -1;
@@ -42,8 +43,7 @@ class Game {
     if (this.state === 'wait') this.startRound();
     else {
       this.send(p, this.mapMessage());
-      // someone was playing alone: restart so the newcomer can join in
-      if (this.participants <= 1 && !this.ending) this.ending = { t: 0.6, winner: null, silent: true };
+      if (this.participants <= 1 && !this.ending) this.ending = { t: 0.5, winner: null, silent: true };
     }
     return p;
   }
@@ -56,8 +56,7 @@ class Game {
   }
 
   input(p, msg) {
-    const i = p.input;
-    const c = p.char;
+    const i = p.input, c = p.char;
     if (c) {
       if (msg.j && !i.j) c.jumpPressed();
       if (msg.s && !i.s) c.shootQueued = true;
@@ -87,8 +86,8 @@ class Game {
     const n = this.players.size;
     if (n === 0) { this.state = 'wait'; return; }
     this.state = 'play';
-    this.W = Math.round(26 + 3.8 * Math.max(0, n - 2));
-    this.H = this.W * 0.5625;
+    this.W = Math.round(46 + 3 * Math.max(0, n - 4));
+    this.H = Math.round(this.W * 0.56 * 10) / 10;
     let idx;
     do idx = Math.floor(Math.random() * MAPS.length); while (MAPS.length > 1 && idx === this.lastMap);
     if (this.forceMap != null) idx = this.forceMap;
@@ -96,26 +95,24 @@ class Game {
     const def = MAPS[idx];
     this.mapDef = def;
 
-    this.world = new pl.World({ gravity: V(0, def.gravity || -30) });
-    this.props = new Map(); this.items = new Map(); this.projs = new Map();
+    this.world = new pl.World({ gravity: V(0, def.gravity || -28) });
+    this.props = new Map(); this.items = new Map(); this.projs = new Map(); this.bullets = [];
     this.chars = []; this.ropes = []; this.hazards = []; this.tickers = []; this.breaks = [];
     this.nextObj = 1;
-    this.time = 0; this.freeze = 1.3; this.wind = 0; this.ending = null;
-    this.dropTimer = 2.5;
+    this.time = 0; this.freeze = 0.8; this.wind = 0; this.ending = null;
+    this.dropTimer = 2;
     this.pending = [];
     this.world.on('begin-contact', (c) => this.onContact(c));
 
     const spawns = [];
-    const m = this.mapContext(spawns, n);
-    def.build(m);
+    def.build(this.mapContext(spawns, n));
 
-    // pick spread-out spawns
     spawns.sort((a, b) => a.x - b.x);
     const players = [...this.players.values()].sort(() => Math.random() - 0.5);
     players.forEach((p, i) => {
       const s = spawns.length ? spawns[Math.floor(((i + 0.5) / players.length) * spawns.length)] : { x: this.W / 2, y: this.H / 2 };
-      const off = spawns.length < players.length ? (i % 3 - 1) * 0.7 : 0;
-      p.char = new Character(this, p, s.x + off, s.y + 0.05);
+      const off = spawns.length < players.length ? ((i % 3) - 1) * 0.8 : 0;
+      p.char = new Character(this, p, s.x + off, s.y + 0.3);
       if (process.env.FAIGHT_DEV) { const t = C.ORDER[Math.floor(Math.random() * C.ORDER.length)]; p.char.weapon = { type: t, ammo: C.WEAPONS[t].ammo, spin: 0 }; }
       this.chars.push(p.char);
     });
@@ -125,15 +122,30 @@ class Game {
   }
 
   mapContext(spawns, n) {
-    const game = this;
+    const game = this, W = this.W;
     const m = {
-      W: this.W, H: this.H, n, world: this.world,
+      W, H: this.H, n, world: this.world, X: (f) => f * W,
       rect(x, y, w, h, o = {}) { return game.addProp('b', x, y, { w, h }, o); },
       circle(x, y, r, o = {}) { return game.addProp('c', x, y, { r }, o); },
-      crate(x, y, s, o = {}) { return game.addProp('b', x, y, { w: s, h: s }, Object.assign({ dynamic: true, density: 1.2, color: '#c08a45', crate: true }, o)); },
+      block(x0, y0, x1, y1, o = {}) { return game.addProp('b', (x0 + x1) / 2, (y0 + y1) / 2, { w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) }, o); },
+      floor(x0, x1, y, th = 0.7, o = {}) { return m.block(x0, y - th, x1, y, o); },
+      wall(x, y0, y1, th = 0.6, o = {}) { return m.block(x - th / 2, y0, x + th / 2, y1, o); },
+      crate(x, y, s = 1, o = {}) {
+        return game.addProp('b', x, y + s / 2, { w: s, h: s }, Object.assign({ dynamic: true, density: 1.1, crate: true }, o));
+      },
+      crates(x, y, cols, rows, s = 1) {
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) m.crate(x + (c - (cols - 1) / 2) * s * 1.01, y + r * s * 1.01, s);
+      },
+      merlons(x0, x1, y, w = 0.8, h = 1.1) {
+        const cnt = Math.max(2, Math.floor((x1 - x0) / (w * 2.2)));
+        for (let i = 0; i < cnt; i++) {
+          const x = x0 + w / 2 + (i / (cnt - 1)) * (x1 - x0 - w);
+          m.block(x - w / 2, y, x + w / 2, y + h);
+        }
+      },
       spawn(x, y) { spawns.push({ x, y }); },
       spawnRow(x0, x1, y) {
-        const cnt = Math.max(1, Math.floor((x1 - x0) / 2.5));
+        const cnt = Math.max(1, Math.floor((x1 - x0) / 3));
         for (let i = 0; i < cnt; i++) spawns.push({ x: x0 + ((i + 0.5) / cnt) * (x1 - x0), y });
       },
       tick(fn) { game.tickers.push(fn); },
@@ -153,16 +165,14 @@ class Game {
       userData: { hazard: o.hazard, bounce: o.bounce, ice: o.ice },
     });
     const id = this.nextObj++;
-    const desc = {
-      id, k: type === 'static' ? 0 : type === 'dynamic' ? 1 : 2, s: shape,
-      x: r2(x), y: r2(y), a: o.angle || 0, c: o.color || (type === 'dynamic' ? '#c08a45' : '#3a3f4b'),
-    };
+    const desc = { id, k: type === 'static' ? 0 : type === 'dynamic' ? 1 : 2, s: shape, x: r2(x), y: r2(y), a: o.angle || 0 };
     if (shape === 'b') { desc.w = size.w; desc.h = size.h; } else desc.r = size.r;
+    if (o.color) desc.c = o.color;
     if (o.hazard) desc.hz = o.hazard;
     if (o.bounce) desc.bo = 1;
     if (o.ice) desc.ice = 1;
     if (o.crate) desc.cr = 1;
-    body.setUserData({ kind: 'prop', id, desc, temp: o.temp });
+    body.setUserData({ kind: 'prop', id, desc });
     this.props.set(id, body);
     if (o.hazard) this.hazards.push(fixture);
     if (o.breakAt) this.breaks.push({ body, at: o.breakAt });
@@ -185,9 +195,8 @@ class Game {
       shapes.push(Object.assign({}, u.desc, { x: r2(p.x), y: r2(p.y), a: r2(b.getAngle()) }));
     }
     return {
-      t: 'map', name: this.mapDef.name, bg: this.mapDef.bg, dark: !!this.mapDef.dark,
-      W: this.W, H: this.H, shapes, ropes: this.ropes,
-      playing: this.chars.map(c => c.player.id),
+      t: 'map', name: this.mapDef.name, sky: this.mapDef.sky, dark: !!this.mapDef.dark,
+      W: this.W, H: this.H, shapes, ropes: this.ropes, playing: this.chars.map(c => c.player.id),
     };
   }
 
@@ -205,21 +214,22 @@ class Game {
     if (ub.kind !== 'part' || !ub.char.alive) return;
     const va = fa.getBody().getLinearVelocity(), vb = fb.getBody().getLinearVelocity();
     const rel = Math.hypot(va.x - vb.x, va.y - vb.y);
-    if (ua.kind === 'item' && ua.item.harm > 0 && ua.item.thrownBy !== ub.char && rel > 7) {
-      const item = ua.item, ch = ub.char;
+    const ch = ub.char;
+    if (ua.kind === 'item' && ua.item.harm > 0 && ua.item.thrownBy !== ch && rel > 7) {
+      const item = ua.item;
       item.harm = 0;
       this.pending.push(() => {
-        ch.damage(16, item.thrownBy, 0.6);
-        ch.torso.applyLinearImpulse(V(va.x * 1.5, 12), ch.torso.getWorldCenter(), true);
-        this.event(['bonk', r2(fb.getBody().getPosition().x), r2(fb.getBody().getPosition().y), ch.player.id]);
+        ch.damage(15, item.thrownBy, 0.6);
+        ch.push(va.x * 2, 8);
+        this.event(['thud', r2(fb.getBody().getPosition().x), r2(fb.getBody().getPosition().y), ch.player.id]);
       });
     }
     if (ua.kind === 'prop' && fa.getBody().getType() === 'dynamic' && fa.getBody().getMass() > 0.9 && rel > 11) {
-      const ch = ub.char, p = fb.getBody().getPosition();
+      const p = fb.getBody().getPosition();
       const dmg = Math.min(35, (rel - 9) * 3 * Math.min(1.5, fa.getBody().getMass() / 1.5));
       this.pending.push(() => {
-        ch.damage(dmg, null, 0.5);
-        this.event(['bonk', r2(p.x), r2(p.y), ch.player.id]);
+        ch.damage(dmg, null, 0.6);
+        this.event(['thud', r2(p.x), r2(p.y), ch.player.id]);
       });
     }
   }
@@ -230,11 +240,14 @@ class Game {
     this.tickN++;
     this.time += DT;
     this.freeze = Math.max(0, this.freeze - DT);
-    if (this.freeze === 0 && !this.wentGo) { this.wentGo = true; }
 
     for (const fn of this.tickers) fn(this.time, DT, this);
     for (const br of this.breaks) {
-      if (!br.done && this.time > br.at) { br.done = true; this.event(['crack', r2(br.body.getPosition().x), r2(br.body.getPosition().y)]); this.removeProp(br.body); }
+      if (!br.done && this.time > br.at) {
+        br.done = true;
+        this.event(['crack', r2(br.body.getPosition().x), r2(br.body.getPosition().y)]);
+        this.removeProp(br.body);
+      }
     }
 
     for (const c of this.chars) {
@@ -243,6 +256,7 @@ class Game {
       if (this.freeze === 0 && c.stun <= 0) this.combat(c, c.player.input);
     }
 
+    this.updateBullets();
     this.updateProjectiles();
     this.updateItems();
 
@@ -258,15 +272,10 @@ class Game {
   }
 
   checkHazards() {
-    const margin = 14;
     for (const c of this.chars) {
       if (!c.alive) continue;
-      const p = c.torso.getPosition();
-      if (p.y < -8 || p.x < -margin || p.x > this.W + margin || p.y > this.H + 40) {
-        this.event(['fall', c.player.id, r2(clamp(p.x, 0, this.W)), r2(Math.max(p.y, -2))]);
-        c.die(null);
-        continue;
-      }
+      const p = c.chest.getPosition();
+      if (p.y < -8 || p.x < -15 || p.x > this.W + 15 || p.y > this.H + 40) { c.die(null); continue; }
       let hz = c.groundFixture && (c.groundFixture.getUserData() || {}).hazard;
       if (!hz) {
         outer: for (const f of this.hazards) {
@@ -274,17 +283,17 @@ class Game {
         }
       }
       if (hz) {
-        this.event(['hz', hz, r2(p.x), r2(p.y), c.player.id]);
+        this.event(['hz', hz, r2(p.x), r2(p.y)]);
         c.die(null);
-        const up = hz === 'lava' ? 16 : 9;
-        for (const b of c.bodies) b.setLinearVelocity(V((Math.random() - 0.5) * 8, up + Math.random() * 6));
+        const up = hz === 'lava' ? 14 : 8;
+        for (const b of c.bodies) b.setLinearVelocity(V((Math.random() - 0.5) * 6, up + Math.random() * 4));
       }
     }
   }
 
   cleanup() {
     for (const c of this.chars) {
-      if (!c.alive && !c.gone && c.torso.getPosition().y < -30) {
+      if (!c.alive && !c.gone && c.chest.getPosition().y < -30) {
         c.gone = true;
         for (const b of c.bodies) this.world.destroyBody(b);
       }
@@ -297,26 +306,24 @@ class Game {
   roundLogic() {
     const alive = this.chars.filter(c => c.alive);
     if (!this.ending) {
-      if ((this.participants >= 2 && alive.length <= 1) || alive.length === 0) {
-        this.ending = { t: 1.6, winner: alive[0] || null };
-      }
+      if ((this.participants >= 2 && alive.length <= 1) || alive.length === 0) this.ending = { t: 1.8, winner: alive[0] || null };
       return;
     }
     this.ending.t -= DT;
-    if (this.ending.t <= 0 && !this.ending.announced) {
+    if (this.ending.t > 0) return;
+    if (!this.ending.announced) {
       this.ending.announced = true;
-      if (this.ending.silent) { this.startRound(); return; }
+      if (this.ending.silent) return this.startRound();
       const w = this.ending.winner;
       if (w && w.alive && this.players.has(w.player.id)) {
         w.player.score++;
         this.event(['win', w.player.id]);
       } else this.event(['win', 0]);
       this.broadcastRoster();
-      this.ending.t = 2.4;
-      this.ending.next = true;
+      this.ending.t = 2.2;
       return;
     }
-    if (this.ending.announced && this.ending.t <= 0) this.startRound();
+    this.startRound();
   }
 
   // ---------- combat
@@ -334,137 +341,118 @@ class Game {
     }
     const held = input.s;
     if (w.spinup) c.weapon.spin = held ? Math.min(w.spinup, c.weapon.spin + DT) : Math.max(0, c.weapon.spin - DT * 2);
-    const wants = w.auto ? held : queued;
-    if (!wants || c.cooldown > 0) return;
-    if (c.weapon.ammo <= 0) {
-      if (queued) this.throwWeapon(c, 19);
-      return;
-    }
+    if (!(w.auto ? held : queued) || c.cooldown > 0) return;
     if (w.spinup && c.weapon.spin < w.spinup) return;
     c.cooldown = w.cd;
     c.weapon.ammo--;
     this.fire(c, c.weapon.type, w);
+    if (c.weapon.ammo <= 0) this.throwWeapon(c, 6);
   }
 
-  muzzle(c) {
-    const sh = c.shoulder();
+  muzzle(c, w) {
+    const s = c.shoulder();
     const dir = V(Math.cos(c.aim), Math.sin(c.aim));
-    let end = V(sh.x + dir.x * 1.0, sh.y + dir.y * 1.0);
-    this.world.rayCast(sh, end, (f, point, n, frac) => {
+    const reach = 0.66 + w.len;
+    let end = V(s.x + dir.x * reach, s.y + dir.y * reach);
+    this.world.rayCast(s, end, (f, point, n, frac) => {
       const u = f.getBody().getUserData() || {};
       if (f.isSensor() || u.kind !== 'prop' || f.getBody().getType() === 'dynamic') return -1;
       end = V(point.x - dir.x * 0.05, point.y - dir.y * 0.05);
       return frac;
     });
-    return { sh, dir, end };
+    return { dir, end };
   }
 
   fire(c, type, w) {
-    const { dir, end } = this.muzzle(c);
+    const { dir, end } = this.muzzle(c, w);
     const tIdx = C.ORDER.indexOf(type);
-    const cm = c.torso.getWorldCenter();
-    c.torso.applyLinearImpulse(V(-dir.x * w.recoil, -dir.y * w.recoil * 0.6), cm, true);
-
-    if (type === 'rpg' || type === 'grenade') {
-      this.spawnProj(c, type, end, dir);
-      this.event([type === 'rpg' ? 'rocket' : 'toss', r2(end.x), r2(end.y)]);
-      return;
-    }
-    const hitCount = new Map();
+    c.push(-dir.x * w.recoil, -dir.y * w.recoil * 0.5);
+    this.event(['fire', c.player.id, tIdx, r2(end.x), r2(end.y), Math.round(c.aim * 100)]);
+    if (type === 'rpg' || type === 'grenade') { this.spawnProj(c, type, end, dir); return; }
     for (let i = 0; i < w.pellets; i++) {
       const ang = c.aim + (Math.random() - 0.5) * 2 * w.spread;
-      const range = (w.range || 70) * (w.pellets > 1 ? 0.8 + Math.random() * 0.4 : 1);
-      const hit = this.hitscan(c, end, ang, range);
-      const d = V(Math.cos(ang), Math.sin(ang));
-      const to = hit ? hit.point : V(end.x + d.x * range, end.y + d.y * range);
-      this.event(['shot', r2(end.x), r2(end.y), r2(to.x), r2(to.y), tIdx]);
-      if (!hit) continue;
-      const body = hit.fixture.getBody();
-      const u = body.getUserData() || {};
-      const imp = V(d.x * w.kb, d.y * w.kb);
-      if (u.kind === 'part') {
-        const ch = u.char;
-        if (ch.alive) {
-          const dmg = w.dmg * (u.part === 'head' ? 1.4 : 1);
-          hitCount.set(ch, (hitCount.get(ch) || 0) + 1);
-          ch.damage(dmg, c, w.stun || 0);
-          this.event(['hit', r2(hit.point.x), r2(hit.point.y), ch.player.id, u.part === 'head' ? 1 : 0]);
-        } else {
-          this.event(['hit', r2(hit.point.x), r2(hit.point.y), ch.player.id, 0]);
-        }
-        body.applyLinearImpulse(V(imp.x * 0.35, imp.y * 0.35), hit.point, true);
-        ch.torso.applyLinearImpulse(imp, ch.torso.getWorldCenter(), true);
-      } else if (u.kind === 'prop' || u.kind === 'item' || u.kind === 'proj') {
-        if (body.getType() === 'dynamic') body.applyLinearImpulse(V(imp.x * 0.6, imp.y * 0.6), hit.point, true);
-        this.event(['spark', r2(hit.point.x), r2(hit.point.y)]);
-      }
+      const sp = w.speed * (w.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
+      const b = { id: this.nextObj++, x: end.x, y: end.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: w.life, owner: c, w };
+      this.bullets.push(b);
+      this.event(['b', b.id, r2(b.x), r2(b.y), r2(b.vx), r2(b.vy), tIdx, w.life]);
     }
-    for (const [ch, n] of hitCount) if (type === 'shotgun' && n >= 3) ch.stun = Math.max(ch.stun, 0.45);
   }
 
-  hitscan(c, from, ang, range) {
-    const to = V(from.x + Math.cos(ang) * range, from.y + Math.sin(ang) * range);
-    let best = null;
-    this.world.rayCast(from, to, (f, point, normal, frac) => {
-      if (f.isSensor()) return -1;
-      const u = f.getBody().getUserData() || {};
-      if (u.char === c || u.kind === 'item') return -1;
-      if (u.kind === 'proj' && u.proj.owner === c) return -1;
-      best = { fixture: f, point: V(point.x, point.y), frac };
-      return frac;
-    });
-    return best;
+  updateBullets() {
+    const keep = [];
+    for (const b of this.bullets) {
+      const nx = b.x + b.vx * DT, ny = b.y + b.vy * DT;
+      let best = null;
+      this.world.rayCast(V(b.x, b.y), V(nx, ny), (f, point, normal, frac) => {
+        if (f.isSensor()) return -1;
+        const u = f.getBody().getUserData() || {};
+        if (u.char === b.owner || u.kind === 'item' || u.kind === 'proj') return -1;
+        best = { f, point: V(point.x, point.y), frac };
+        return frac;
+      });
+      if (!best) {
+        b.x = nx; b.y = ny; b.life -= DT;
+        if (b.life > 0 && ny > -20) keep.push(b);
+        continue;
+      }
+      const body = best.f.getBody(), u = body.getUserData() || {};
+      const sp = Math.hypot(b.vx, b.vy);
+      const dx = b.vx / sp, dy = b.vy / sp, kb = b.w.kb;
+      let victim = -1;
+      if (u.kind === 'part') {
+        const ch = u.char;
+        victim = ch.player.id;
+        if (ch.alive) ch.damage(b.w.dmg * (u.part === 'head' ? 1.5 : 1), b.owner, b.w.stun || (b.w.pellets > 1 ? 0.15 : 0));
+        body.applyLinearImpulse(V(dx * kb * 0.3, dy * kb * 0.3), best.point, true);
+        ch.push(dx * kb, dy * kb + kb * 0.15);
+      } else if (body.getType() === 'dynamic') {
+        body.applyLinearImpulse(V(dx * kb * 0.5, dy * kb * 0.5), best.point, true);
+      }
+      this.event(['bh', b.id, r2(best.point.x), r2(best.point.y), victim]);
+    }
+    this.bullets = keep;
   }
 
   punch(c) {
-    c.cooldown = 0.36;
-    c.punchT = 0.16;
+    c.cooldown = 0.34;
+    c.punchT = 0.13;
     c.punchArm = 1 - c.punchArm;
-    const sh = c.shoulder();
+    const s = c.shoulder();
     const dir = V(Math.cos(c.aim), Math.sin(c.aim));
-    const center = V(sh.x + dir.x * 0.85, sh.y + dir.y * 0.85);
-    const R = 0.62;
-    const hand = c.arms[c.punchArm].l;
-    hand.applyLinearImpulse(V(dir.x * 2.5, dir.y * 2.5), hand.getWorldCenter(), true);
-    this.event(['punch', r2(center.x), r2(center.y)]);
+    const center = V(s.x + dir.x * 0.75, s.y + dir.y * 0.75);
+    const R = 0.6;
+    this.event(['punch', c.player.id]);
     const hitChars = new Set(), hitBodies = new Set();
     this.world.queryAABB(pl.AABB(V(center.x - R, center.y - R), V(center.x + R, center.y + R)), (f) => {
       const b = f.getBody(), u = b.getUserData() || {};
-      if (u.char === c || f.isSensor()) return true;
-      if (b.getType() !== 'dynamic') return true;
+      if (u.char === c || f.isSensor() || b.getType() !== 'dynamic') return true;
       if (u.kind === 'part') hitChars.add(u.char); else hitBodies.add(b);
       return true;
     });
     for (const ch of hitChars) {
-      const tp = ch.torso.getWorldCenter();
-      const kb = V(dir.x * 26 + (tp.x > sh.x ? 3 : -3), dir.y * 26 + 9);
-      if (ch.alive) {
-        ch.damage(9, c, ch.stun > 0 ? 0.5 : 0.28);
-        this.event(['hit', r2(center.x), r2(center.y), ch.player.id, 2]);
-      }
-      ch.torso.applyLinearImpulse(kb, tp, true);
-      ch.head.applyLinearImpulse(V(dir.x * 3, dir.y * 3 + 1), ch.head.getWorldCenter(), true);
+      if (ch.alive) ch.damage(10, c, ch.stun > 0 ? 0.45 : 0.25);
+      ch.push(dir.x * 38, dir.y * 38 + 10);
+      this.event(['ph', r2(center.x), r2(center.y), ch.player.id, Math.round(c.aim * 100)]);
     }
     for (const b of hitBodies) {
       const m = Math.min(b.getMass(), 6);
-      b.applyLinearImpulse(V(dir.x * 6 * m, dir.y * 6 * m + 2), b.getWorldCenter(), true);
+      b.applyLinearImpulse(V(dir.x * 7 * m, dir.y * 7 * m + 2), b.getWorldCenter(), true);
     }
   }
 
-  // ---------- projectiles
+  // ---------- rockets & grenades
   spawnProj(c, type, at, dir) {
     const id = this.nextObj++;
     const rocket = type === 'rpg';
-    const body = this.world.createBody({ type: 'dynamic', position: at, bullet: true, gravityScale: rocket ? 0.12 : 1, angle: c.aim, angularDamping: rocket ? 5 : 0.3 });
-    body.createFixture(rocket ? pl.Box(0.22, 0.08) : pl.Circle(0.16), {
-      density: rocket ? 2 : 4, restitution: rocket ? 0 : 0.45, friction: 0.5,
+    const body = this.world.createBody({ type: 'dynamic', position: at, bullet: true, gravityScale: rocket ? 0.1 : 1, angle: c.aim, angularDamping: rocket ? 5 : 0.3 });
+    body.createFixture(rocket ? pl.Box(0.24, 0.08) : pl.Circle(0.15), {
+      density: rocket ? 2 : 4, restitution: rocket ? 0 : 0.4, friction: 0.5,
       filterGroupIndex: c.group, filterCategoryBits: C.CAT_PROJ, filterMaskBits: C.CAT_WORLD | C.CAT_BODY,
     });
-    const cv = c.torso.getLinearVelocity();
-    const speed = rocket ? 23 : 15;
-    body.setLinearVelocity(V(dir.x * speed + (rocket ? 0 : cv.x * 0.5), dir.y * speed + (rocket ? 0 : cv.y * 0.3 + 2)));
+    const cv = c.chest.getLinearVelocity(), w = C.WEAPONS[type];
+    body.setLinearVelocity(V(dir.x * w.speed + (rocket ? 0 : cv.x * 0.5), dir.y * w.speed + (rocket ? 0 : cv.y * 0.3 + 2)));
     if (!rocket) body.setAngularVelocity(-Math.cos(c.aim) * 12);
-    const proj = { id, type, body, owner: c, life: rocket ? 4 : 2.2 };
+    const proj = { id, type, body, owner: c, life: w.life };
     body.setUserData({ kind: 'proj', proj });
     this.projs.set(id, proj);
   }
@@ -472,33 +460,25 @@ class Game {
   updateProjectiles() {
     for (const p of this.projs.values()) {
       p.life -= DT;
-      const pos = p.body.getPosition();
-      if (p.type === 'rpg') {
-        const v = p.body.getLinearVelocity();
-        p.body.setAngle(Math.atan2(v.y, v.x));
-      }
-      if (p.life <= 0 || pos.y < -15) this.detonate(p);
+      if (p.type === 'rpg') { const v = p.body.getLinearVelocity(); p.body.setAngle(Math.atan2(v.y, v.x)); }
+      if (p.life <= 0 || p.body.getPosition().y < -15) this.detonate(p);
     }
   }
 
   detonate(p) {
     if (p.done) return;
     p.done = true;
-    const pos = p.body.getPosition();
-    const x = pos.x, y = pos.y;
+    const { x, y } = p.body.getPosition();
     this.projs.delete(p.id);
     this.world.destroyBody(p.body);
-    const w = C.WEAPONS[p.type];
-    this.explode(x, y, p.type === 'rpg' ? 3.4 : 3.0, w.dmg, p.owner);
+    this.explode(x, y, p.type === 'rpg' ? 3.6 : 3.2, C.WEAPONS[p.type].dmg, p.owner);
   }
 
   explode(x, y, R, dmg, owner) {
     this.event(['boom', r2(x), r2(y), R]);
     const seen = new Set();
     this.world.queryAABB(pl.AABB(V(x - R, y - R), V(x + R, y + R)), (f) => {
-      const b = f.getBody();
-      if (b.getType() !== 'dynamic' || seen.has(b)) return true;
-      seen.add(b);
+      if (f.getBody().getType() === 'dynamic') seen.add(f.getBody());
       return true;
     });
     const charsHit = new Map();
@@ -510,16 +490,16 @@ class Game {
       if (f <= 0) continue;
       dx /= d; dy /= d;
       const u = b.getUserData() || {};
-      const push = (u.kind === 'part' ? 26 : 17) * f;
+      const push = (u.kind === 'part' ? 24 : 16) * f;
       const v = b.getLinearVelocity();
       b.setLinearVelocity(V(v.x + dx * push, v.y + dy * push + 5 * f));
-      b.setAngularVelocity(b.getAngularVelocity() + (Math.random() - 0.5) * 20 * f);
+      b.setAngularVelocity(b.getAngularVelocity() + (Math.random() - 0.5) * 16 * f);
       if (u.kind === 'part') charsHit.set(u.char, Math.max(charsHit.get(u.char) || 0, f));
     }
     for (const [ch, f] of charsHit) {
       if (!ch.alive) continue;
       const k = clamp(f * 1.35, 0, 1);
-      ch.damage(dmg * k * (ch === owner ? 0.6 : 1), owner, 0.5 + k);
+      ch.damage(dmg * k * (ch === owner ? 0.6 : 1), owner, 0.6 + k);
     }
   }
 
@@ -527,12 +507,11 @@ class Game {
   spawnItem(type, x, y, ammo, fromChar) {
     const id = this.nextObj++;
     const body = this.world.createBody({ type: 'dynamic', position: V(x, y), angularDamping: 0.6, bullet: !!fromChar });
-    body.createFixture(pl.Box(0.4, 0.14), {
+    body.createFixture(pl.Box(0.42, 0.13), {
       density: 2, friction: 0.8, restitution: 0.2,
-      filterCategoryBits: C.CAT_ITEM, filterMaskBits: C.CAT_WORLD,
-      filterGroupIndex: fromChar ? fromChar.group : 0,
+      filterCategoryBits: C.CAT_ITEM, filterMaskBits: C.CAT_WORLD, filterGroupIndex: fromChar ? fromChar.group : 0,
     });
-    const item = { id, type, body, ammo, ttl: 35, noPick: 0, harm: 0, thrownBy: null };
+    const item = { id, type, body, ammo, ttl: 40, noPick: 0, harm: 0, thrownBy: null };
     body.setUserData({ kind: 'item', item });
     this.items.set(id, item);
     return item;
@@ -542,22 +521,19 @@ class Game {
     const hand = c.handPos(0);
     const dir = V(Math.cos(c.aim), Math.sin(c.aim));
     const item = this.spawnItem(c.weapon.type, hand.x, hand.y, c.weapon.ammo, c);
-    const cv = c.torso.getLinearVelocity();
+    const cv = c.chest.getLinearVelocity();
     item.body.setLinearVelocity(V(dir.x * speed + cv.x * 0.5, dir.y * speed + cv.y * 0.5 + 2));
-    item.body.setAngularVelocity(-Math.sign(dir.x || 1) * 14);
+    item.body.setAngularVelocity(-Math.sign(dir.x || 1) * (speed > 8 ? 14 : 6));
     item.body.setAngle(c.aim);
     item.noPick = speed > 8 ? 0.7 : 1.2;
     item.thrownBy = c;
     if (speed > 8) {
       item.harm = 0.9;
-      for (let f = item.body.getFixtureList(); f; f = f.getNext()) {
-        f.setFilterData({ groupIndex: c.group, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD | C.CAT_BODY });
-      }
+      for (let f = item.body.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: c.group, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD | C.CAT_BODY });
     }
     if (c.weapon.ammo <= 0) item.ttl = 2.5;
     c.weapon = null;
     c.pickupCd = 0.4;
-    this.event(['throw', r2(hand.x), r2(hand.y)]);
   }
 
   updateItems() {
@@ -566,13 +542,12 @@ class Game {
     const live = [...this.items.values()].filter(i => i.ammo > 0).length;
     this.dropTimer -= DT;
     if (this.dropTimer <= 0 && this.freeze === 0) {
-      this.dropTimer = (7 + Math.random() * 4) / Math.sqrt(Math.max(1, n / 2));
+      this.dropTimer = (6 + Math.random() * 4) / Math.sqrt(Math.max(1, n / 2));
       if (live < maxItems) {
         const type = pickWeapon();
-        const x = this.W * (0.15 + Math.random() * 0.7);
-        const it = this.spawnItem(type, x, this.H + 2, C.WEAPONS[type].ammo, null);
+        const x = this.W * (0.12 + Math.random() * 0.76);
+        const it = this.spawnItem(type, x, this.H + 3, C.WEAPONS[type].ammo, null);
         it.body.setAngularVelocity((Math.random() - 0.5) * 3);
-        this.event(['drop', r2(x)]);
       }
     }
     for (const it of [...this.items.values()]) {
@@ -580,48 +555,38 @@ class Game {
       it.noPick = Math.max(0, it.noPick - DT);
       if (it.harm > 0) {
         it.harm -= DT;
-        if (it.harm <= 0) {
-          for (let f = it.body.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: 0, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD });
-        }
+        if (it.harm <= 0) for (let f = it.body.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: 0, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD });
       }
       const p = it.body.getPosition();
-      if (it.ttl <= 0 || p.y < -15) {
-        this.items.delete(it.id);
-        this.world.destroyBody(it.body);
-        continue;
-      }
+      if (it.ttl <= 0 || p.y < -15) { this.items.delete(it.id); this.world.destroyBody(it.body); continue; }
       if (it.ammo <= 0 || it.noPick > 0) continue;
       for (const c of this.chars) {
-        if (!c.alive || c.stun > 0 || c.pickupCd > 0) continue;
-        if (c.weapon && c.weapon.ammo > 0) continue;
-        const tp = c.torso.getPosition(), h = c.handPos(0);
-        const near = (Math.abs(p.x - tp.x) < 0.75 && Math.abs(p.y - tp.y) < 1.45) || Math.hypot(p.x - h.x, p.y - h.y) < 0.65;
+        if (!c.alive || c.stun > 0 || c.pickupCd > 0 || c.weapon) continue;
+        const cp = c.chest.getPosition(), hp = c.hip.getPosition(), h = c.handPos(0);
+        const near = (Math.abs(p.x - cp.x) < 0.7 && p.y < cp.y + 0.8 && p.y > hp.y - 1.2) || Math.hypot(p.x - h.x, p.y - h.y) < 0.7;
         if (!near) continue;
-        if (c.weapon) this.throwWeapon(c, 3);
         c.weapon = { type: it.type, ammo: it.ammo, spin: 0 };
-        c.cooldown = 0.2;
-        c.pickupCd = 0.3;
+        c.cooldown = 0.15;
         this.items.delete(it.id);
         this.world.destroyBody(it.body);
-        this.event(['pick', c.player.id, C.ORDER.indexOf(it.type)]);
+        this.event(['pick', c.player.id]);
         break;
       }
     }
   }
 
-  onDeath(c, killer) {
-    const p = c.torso.getPosition();
-    this.event(['die', c.player.id, killer ? killer.player.id : 0, r2(p.x), r2(p.y)]);
+  onDeath(c) {
+    const p = c.chest.getPosition();
+    this.event(['die', c.player.id, r2(p.x), r2(p.y)]);
   }
 
-  // ---------- network snapshot
+  // ---------- snapshot
   sendSnapshot() {
     const P = [];
     for (const c of this.chars) {
       if (c.gone) continue;
-      const row = [c.player.id, c.alive ? 1 : 0, Math.max(0, Math.round(c.hp)), i100(c.aim),
-        c.weapon ? C.ORDER.indexOf(c.weapon.type) : -1, c.weapon ? c.weapon.ammo : 0, c.stun > 0 ? 1 : 0,
-        c.weapon && c.weapon.spin ? Math.round(c.weapon.spin * 100) : 0];
+      const row = [c.player.id, c.alive ? 1 : 0, Math.round(c.aim * 100),
+        c.weapon ? C.ORDER.indexOf(c.weapon.type) : -1, c.weapon ? c.weapon.ammo : 0, c.stun > 0 ? 1 : 0];
       for (const b of c.bodies) { const q = b.getPosition(); row.push(i100(q.x), i100(q.y), i100(b.getAngle())); }
       P.push(row);
     }
@@ -634,14 +599,14 @@ class Game {
     const I = [];
     for (const it of this.items.values()) {
       const q = it.body.getPosition();
-      I.push([it.id, C.ORDER.indexOf(it.type), i100(q.x), i100(q.y), i100(it.body.getAngle()), it.ammo > 0 ? (it.ttl < 5 ? 2 : 1) : 0]);
+      I.push([it.id, C.ORDER.indexOf(it.type), i100(q.x), i100(q.y), i100(it.body.getAngle()), it.ammo > 0 ? (it.ttl < 4 ? 2 : 1) : 0]);
     }
     const R = [];
     for (const pr of this.projs.values()) {
       const q = pr.body.getPosition();
-      R.push([pr.id, pr.type === 'rpg' ? 0 : 1, i100(q.x), i100(q.y), i100(pr.body.getAngle()), Math.round(pr.life * 10)]);
+      R.push([pr.id, pr.type === 'rpg' ? 0 : 1, i100(q.x), i100(q.y), i100(pr.body.getAngle())]);
     }
-    const msg = { t: 's', tm: Math.round(this.time * 1000), P, O, I, R, e: this.events, fz: this.freeze > 0 ? 1 : 0, wd: this.wind };
+    const msg = { t: 's', tm: Math.round(this.time * 1000), P, O, I, R, e: this.events, wd: this.wind };
     this.events = [];
     this.broadcast(msg);
   }

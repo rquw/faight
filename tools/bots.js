@@ -13,11 +13,11 @@ for (let n = 0; n < count; n++) {
     if (m.t !== 's') return;
     const others = m.P.filter(p => p[0] !== me && p[1]);
     self = m.P.find(p => p[0] === me);
-    if (others.length) target = { x: others[0][8] / 100, y: others[0][9] / 100 };
+    if (others.length) target = { x: others[0][9] / 100, y: others[0][10] / 100 };
   });
   setInterval(() => {
     if (ws.readyState !== 1 || !self) return;
-    const sx = self[8] / 100;
+    const sx = self[9] / 100;
     const dx = target.x - sx;
     inp.r = dx > 3 && Math.random() > 0.2 ? 1 : 0;
     inp.l = dx < -3 && Math.random() > 0.2 ? 1 : 0;

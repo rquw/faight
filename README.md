@@ -1,6 +1,6 @@
 # faight 🥊
 
-Physics-based stick figure brawler for the classroom. Inspired by Stick Fight: The Game.
+Physics-based stick figure brawler for the classroom, modeled on Stick Fight: The Game.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/rquw/faight)
 
@@ -18,9 +18,11 @@ Physics-based stick figure brawler for the classroom. Inspired by Stick Fight: T
 | Klick | schießen / schlagen |
 | Q / Rechtsklick | Waffe werfen |
 
+Leere Waffen fliegen automatisch weg. Ohne Waffe wird geschlagen.
+
 **Waffen:** Pistole, Sturmgewehr, Schrotflinte, Sniper, Raketenwerfer, Minigun, Granaten – fallen regelmäßig vom Himmel.
 
-**Maps:** Arena, Kistenlager, Wippe, Lava, Mond, Aufzüge, Windmühle, Eisbahn, Sturm, Kistenregen, Hängebrücke, Trampolin, Schaukeln, Sägewerk. Die Map wächst mit der Spielerzahl.
+**Maps:** Fabrik, Lagerhalle, Burg, Lavahöhle, Baustelle, Wippe, Dächer, Sägewerk, Mond, Eisberg, Sturm, Kistenregen, Schaukeln, Windmühle. Die Map wächst mit der Spielerzahl, die Kamera folgt allen Spielern.
 
 ## Lokal
 ```
@@ -32,4 +34,4 @@ npm start
 Testbots: `node tools/bots.js <code> 3`
 
 ## Tech
-Server-authoritative Physik mit [planck.js](https://github.com/piqnt/planck.js) (Box2D) und Active Ragdolls, WebSockets, Canvas-Client mit Interpolation.
+Server-authoritative Physik mit [planck.js](https://github.com/piqnt/planck.js) (Box2D). Die Figuren sind reine Ragdolls, die über Kräfte aufrecht gehalten werden (keine Animationen). Projektile fliegen echt, WebSockets, Canvas-Client mit Interpolation.

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>faight</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥊</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23161616'/><text x='50' y='72' font-size='64' text-anchor='middle' font-family='Arial Black,Arial' font-weight='900' fill='%23f2c12e'>f</text></svg>">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,32 +12,28 @@
 
 <div id="menu">
   <div class="card">
-    <h1 class="logo">f<span>ai</span>ght</h1>
-    <p class="tag">Stick-Figuren. Physik. Freundschaften zerstören.</p>
-    <label>Name<input id="name" maxlength="14" placeholder="Dein Name" autocomplete="off"></label>
-    <button id="create" class="big">Raum erstellen</button>
-    <div class="or">oder</div>
+    <h1 class="logo">f<span>aight</span></h1>
+    <input id="name" maxlength="14" placeholder="Name" autocomplete="off" spellcheck="false">
+    <button id="create" class="primary">Raum erstellen</button>
     <div class="row">
-      <input id="code" maxlength="4" inputmode="numeric" placeholder="1234" autocomplete="off">
+      <input id="code" maxlength="4" inputmode="numeric" placeholder="Code" autocomplete="off">
       <button id="join">Beitreten</button>
     </div>
     <p id="err"></p>
     <div class="keys">
       <span><b>A</b><b>D</b> laufen</span>
       <span><b>Space</b> springen</span>
-      <span><b>S</b> ducken / schneller fallen</span>
-      <span><b>Klick</b> schießen / schlagen</span>
-      <span><b>Q</b> / <b>Rechtsklick</b> Waffe werfen</span>
+      <span><b>S</b> ducken</span>
+      <span><b>Maus</b> zielen · schießen</span>
+      <span><b>Q</b> Waffe werfen</span>
     </div>
   </div>
 </div>
 
 <div id="hud" hidden>
-  <div id="room"><span>Raum</span> <b id="roomcode"></b><button id="copy" title="Link kopieren">🔗</button></div>
+  <div id="room">RAUM <b id="roomcode"></b><button id="copy" title="Link kopieren">Link</button></div>
   <div id="scores"></div>
-  <div id="feed"></div>
-  <div id="ping"></div>
-  <button id="mute" title="Ton">🔊</button>
+  <button id="mute" title="Ton an/aus">Ton an</button>
 </div>
 
 <script src="client.js"></script>

@@ -1,5 +1,6 @@
-// Active-ragdoll stick figure. Alive: a hover spring + upright torque keep it standing,
-// joint motors animate limbs. Dead / stunned: pure floppy ragdoll.
+// Fully physical stick figure, Stick-Fight style: no animation, only forces.
+// Alive: a support force lifts the hip, torques keep the spine upright, limbs are
+// pulled toward loose target poses. Stunned / dead: forces off -> ragdoll.
 const pl = require('planck');
 const C = require('./constants');
 const V = pl.Vec2;
@@ -8,16 +9,12 @@ const TAU = Math.PI * 2;
 const wrap = (a) => a - TAU * Math.round(a / TAU);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-// part order is shared with the client (see public/client.js PARTS)
-const DIM = {
-  torsoHH: 0.42, torsoHW: 0.13, headR: 0.25,
-  uArmHH: 0.2, lArmHH: 0.19, uLegHH: 0.25, lLegHH: 0.25, limbHW: 0.06,
-};
-const REST = 1.28;        // torso-center height above ground when standing
-const CROUCH_REST = 0.92;
-const SPEED = 7.2;
-const CROUCH_SPEED = 3.2;
-const JUMP = 12.5;
+// body order is shared with the client: hip, chest, head, ua0, la0, ua1, la1, ul0, ll0, ul1, ll1
+const DIM = { hipHH: 0.17, chestHH: 0.2, headR: 0.24, uArmHH: 0.17, lArmHH: 0.16, uLegHH: 0.23, lLegHH: 0.23, w: 0.07 };
+const REST = 1.08;         // hip-center height above ground
+const CROUCH_REST = 0.78;
+const SPEED = 8;
+const JUMP = 14;
 
 class Character {
   constructor(game, player, x, y) {
@@ -32,77 +29,72 @@ class Character {
     this.coyote = 0;
     this.jumpBuffer = 0;
     this.grounded = false;
-    this.groundBody = null;
-    this.phase = 0;
+    this.groundFixture = null;
     this.facing = 1;
     this.aim = 0;
-    this.weapon = null;       // {type, ammo, cd, spin}
+    this.weapon = null;
     this.cooldown = 0;
     this.punchT = 0;
     this.punchArm = 0;
-    this.punchHit = new Set();
     this.pickupCd = 0;
     this.shootQueued = false;
     this.throwQueued = false;
-    this.groundFixture = null;
+    this.stepT = 0;
+    this.stepLeg = 0;
     this.wallSide = 0;
     this.lastHitBy = null;
     this.build(x, y);
   }
 
-  part(name, def, shape, density) {
-    const b = this.world.createBody(Object.assign({ type: 'dynamic', angularDamping: 0.5, linearDamping: 0.05 }, def));
+  part(name, pos, shape, density, mask) {
+    const b = this.world.createBody({ type: 'dynamic', position: pos, angularDamping: 1, linearDamping: 0.1 });
     b.createFixture(shape, {
-      density, friction: 0.6, restitution: 0.05,
-      filterGroupIndex: this.group,
-      filterCategoryBits: C.CAT_BODY,
-      filterMaskBits: (name === 'torso' || name === 'head') ? C.CAT_WORLD | C.CAT_BODY | C.CAT_PROJ : 0,
+      density, friction: name[1] === 'l' ? 0.25 : 0.4, restitution: 0,
+      filterGroupIndex: this.group, filterCategoryBits: C.CAT_BODY, filterMaskBits: mask,
     });
     b.setUserData({ kind: 'part', char: this, part: name });
     return b;
   }
 
-  limb(name, parent, anchor, hh, lower, upper) {
-    const b = this.part(name, { position: V(anchor.x, anchor.y - hh) }, pl.Box(DIM.limbHW, hh), 6);
-    const j = this.world.createJoint(pl.RevoluteJoint({
-      enableMotor: true, maxMotorTorque: 60, motorSpeed: 0,
-      enableLimit: lower != null, lowerAngle: lower || 0, upperAngle: upper || 0,
-    }, parent, b, anchor));
-    return [b, j];
-  }
-
   build(x, y) {
-    const cy = y + REST;
-    this.torso = this.part('torso', { position: V(x, cy) }, pl.Box(DIM.torsoHW, DIM.torsoHH), 22);
-    this.head = this.part('head', { position: V(x, cy + DIM.torsoHH + DIM.headR + 0.04) }, pl.Circle(DIM.headR), 9);
-    this.neck = this.world.createJoint(pl.RevoluteJoint({
-      enableLimit: true, lowerAngle: -0.5, upperAngle: 0.5, enableMotor: true, maxMotorTorque: 8,
-    }, this.torso, this.head, V(x, cy + DIM.torsoHH)));
+    const full = C.CAT_WORLD | C.CAT_BODY | C.CAT_PROJ;
+    const hy = y + REST + 0.05;
+    this.hip = this.part('hip', V(x, hy), pl.Box(DIM.w + 0.01, DIM.hipHH), 12, full);
+    const cy = hy + DIM.hipHH + DIM.chestHH;
+    this.chest = this.part('chest', V(x, cy), pl.Box(DIM.w + 0.02, DIM.chestHH), 12, full);
+    const headY = cy + DIM.chestHH + DIM.headR + 0.02;
+    this.head = this.part('head', V(x, headY), pl.Circle(DIM.headR), 5, full);
+    const J = (a, b, p, lo, hi) => this.world.createJoint(pl.RevoluteJoint({ enableLimit: lo != null, lowerAngle: lo || 0, upperAngle: hi || 0 }, a, b, p));
+    J(this.hip, this.chest, V(x, hy + DIM.hipHH), -0.5, 0.5);
+    J(this.chest, this.head, V(x, cy + DIM.chestHH + 0.02), -0.6, 0.6);
 
-    const sh = V(x, cy + DIM.torsoHH - 0.08);
-    const hip = V(x, cy - DIM.torsoHH + 0.02);
+    const sh = V(x, cy + DIM.chestHH - 0.05);
     this.arms = [];
+    for (let i = 0; i < 2; i++) {
+      const u = this.part('ua', V(x, sh.y - DIM.uArmHH), pl.Box(DIM.w * 0.8, DIM.uArmHH), 5, C.CAT_WORLD);
+      const l = this.part('la', V(x, sh.y - DIM.uArmHH * 2 - DIM.lArmHH), pl.Box(DIM.w * 0.8, DIM.lArmHH), 5, C.CAT_WORLD);
+      J(this.chest, u, sh);
+      J(u, l, V(x, sh.y - DIM.uArmHH * 2), -2.7, 2.7);
+      this.arms.push({ u, l });
+    }
+    const hp = V(x, hy - DIM.hipHH);
     this.legs = [];
     for (let i = 0; i < 2; i++) {
-      const [ua, sj] = this.limb('uarm', this.torso, sh, DIM.uArmHH);
-      const [la, ej] = this.limb('larm', ua, V(x, sh.y - DIM.uArmHH * 2), DIM.lArmHH, -2.6, 2.6);
-      this.arms.push({ u: ua, l: la, sj, ej });
+      const u = this.part('ul', V(x, hp.y - DIM.uLegHH), pl.Box(DIM.w, DIM.uLegHH), 6, full);
+      const l = this.part('ll', V(x, hp.y - DIM.uLegHH * 2 - DIM.lLegHH), pl.Box(DIM.w, DIM.lLegHH), 6, full);
+      J(this.hip, u, hp, -2.2, 2.2);
+      J(u, l, V(x, hp.y - DIM.uLegHH * 2), -2.6, 2.6);
+      this.legs.push({ u, l });
     }
-    for (let i = 0; i < 2; i++) {
-      const [ul, hj] = this.limb('uleg', this.torso, hip, DIM.uLegHH, -2.4, 2.4);
-      const [ll, kj] = this.limb('lleg', ul, V(x, hip.y - DIM.uLegHH * 2), DIM.lLegHH, -2.6, 2.6);
-      this.legs.push({ u: ul, l: ll, hj, kj });
-    }
-    this.bodies = [this.torso, this.head, this.arms[0].u, this.arms[0].l, this.arms[1].u, this.arms[1].l,
+    this.bodies = [this.hip, this.chest, this.head, this.arms[0].u, this.arms[0].l, this.arms[1].u, this.arms[1].l,
       this.legs[0].u, this.legs[0].l, this.legs[1].u, this.legs[1].l];
-    this.joints = [this.neck, ...this.arms.flatMap(a => [a.sj, a.ej]), ...this.legs.flatMap(l => [l.hj, l.kj])];
     this.mass = this.bodies.reduce((s, b) => s + b.getMass(), 0);
   }
 
-  pos() { return this.torso.getPosition(); }
+  get torso() { return this.chest; }
 
   shoulder() {
-    const a = this.torso.getAngle(), p = this.torso.getPosition(), d = DIM.torsoHH - 0.08;
+    const a = this.chest.getAngle(), p = this.chest.getPosition(), d = DIM.chestHH - 0.05;
     return V(p.x - Math.sin(a) * d, p.y + Math.cos(a) * d);
   }
 
@@ -116,33 +108,22 @@ class Character {
     return V(p.x + Math.sin(a) * DIM.lLegHH, p.y - Math.cos(a) * DIM.lLegHH);
   }
 
-  // points used for hazard checks
   probePoints() {
-    return [this.torso.getPosition(), this.head.getPosition(), this.footPos(0), this.footPos(1), this.handPos(0), this.handPos(1)];
-  }
-
-  motor(j, target, gain, torque) {
-    j.setMaxMotorTorque(torque);
-    j.setMotorSpeed(clamp(gain * wrap(target - j.getJointAngle()), -40, 40));
-  }
-
-  ownFixture(f) {
-    const u = f.getBody().getUserData();
-    return u && u.char === this;
+    return [this.chest.getPosition(), this.hip.getPosition(), this.head.getPosition(), this.footPos(0), this.footPos(1)];
   }
 
   castGround() {
-    const p = this.torso.getPosition();
-    const len = REST + 0.5;
+    const p = this.hip.getPosition();
+    const len = REST + 0.55;
     let best = null;
-    for (const ox of [-0.22, 0, 0.22]) {
-      const from = V(p.x + ox, p.y), to = V(p.x + ox, p.y - len);
-      this.world.rayCast(from, to, (f, point, normal, frac) => {
-        if (f.isSensor() || f.getFilterMaskBits() === 0) return -1;
+    for (const ox of [-0.18, 0, 0.18]) {
+      this.world.rayCast(V(p.x + ox, p.y), V(p.x + ox, p.y - len), (f, point, normal, frac) => {
+        if (f.isSensor()) return -1;
         const u = f.getBody().getUserData();
         if (u && (u.char === this || u.kind === 'item' || u.kind === 'proj')) return -1;
+        if (u && u.kind === 'part' && (u.part === 'ua' || u.part === 'la')) return -1;
         const d = frac * len;
-        if (!best || d < best.d) best = { d, point: V(point.x, point.y), normal: V(normal.x, normal.y), fixture: f };
+        if (!best || d < best.d) best = { d, point: V(point.x, point.y), fixture: f };
         return frac;
       });
     }
@@ -150,14 +131,14 @@ class Character {
   }
 
   castWall(dir) {
-    const p = this.torso.getPosition();
+    const p = this.chest.getPosition();
     let hit = false;
-    for (const oy of [0.3, -0.3]) {
-      this.world.rayCast(V(p.x, p.y + oy), V(p.x + dir * 0.42, p.y + oy), (f) => {
-        if (f.isSensor() || f.getFilterMaskBits() === 0) return -1;
-        const u = f.getBody().getUserData();
+    for (const oy of [0.1, -0.35]) {
+      this.world.rayCast(V(p.x, p.y + oy), V(p.x + dir * 0.45, p.y + oy), (f) => {
+        if (f.isSensor()) return -1;
+        const b = f.getBody(), u = b.getUserData();
         if (u && (u.char || u.kind === 'item' || u.kind === 'proj')) return -1;
-        if (f.getBody().getType() === 'dynamic' && f.getBody().getMass() < 3) return -1;
+        if (b.getType() === 'dynamic' && b.getMass() < 4) return -1;
         hit = true;
         return 0;
       });
@@ -165,7 +146,38 @@ class Character {
     return hit;
   }
 
-  jumpPressed() { this.jumpBuffer = 0.14; }
+  jumpPressed() { this.jumpBuffer = 0.15; }
+
+  // spring a body's center toward a target point that moves with the chest
+  pullTo(b, tx, ty, w, maxA) {
+    const p = b.getWorldCenter(), v = b.getLinearVelocity(), cv = this.chest.getLinearVelocity(), m = b.getMass();
+    let ax = w * w * (tx - p.x) + 2 * w * (cv.x - v.x);
+    let ay = w * w * (ty - p.y) + 2 * w * (cv.y - v.y);
+    const mag = Math.hypot(ax, ay);
+    if (mag > maxA) { ax *= maxA / mag; ay *= maxA / mag; }
+    b.applyForceToCenter(V(ax * m, ay * m), true);
+    this.chest.applyForceToCenter(V(-ax * m, -ay * m), true);
+  }
+
+  // rotate a body toward a world angle (limb angle 0 = pointing down).
+  // rate: how fast the error closes (1/s), grip: 0..1 share of the needed torque per step
+  turnTo(b, target, rate, grip, maxT = 300) {
+    const want = rate * wrap(target - b.getAngle());
+    const t = grip * b.getInertia() * (want - b.getAngularVelocity()) * 60;
+    b.applyTorque(clamp(t, -maxT, maxT), true);
+  }
+
+  // place an arm exactly (no fighting springs -> no jitter)
+  poseArm(i, s, angU, angL) {
+    const { u, l } = this.arms[i];
+    const ux = Math.sin(angU), uy = -Math.cos(angU), lx = Math.sin(angL), ly = -Math.cos(angL);
+    const ex = s.x + ux * DIM.uArmHH * 2, ey = s.y + uy * DIM.uArmHH * 2;
+    const vu = this.chest.getLinearVelocity();
+    u.setTransform(V(s.x + ux * DIM.uArmHH, s.y + uy * DIM.uArmHH), angU);
+    l.setTransform(V(ex + lx * DIM.lArmHH, ey + ly * DIM.lArmHH), angL);
+    u.setLinearVelocity(vu); l.setLinearVelocity(vu);
+    u.setAngularVelocity(0); l.setAngularVelocity(0);
+  }
 
   update(dt, input) {
     if (!this.alive) return;
@@ -175,177 +187,161 @@ class Character {
     this.jumpLock = Math.max(0, this.jumpLock - dt);
     this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
     this.stun = Math.max(0, this.stun - dt);
+    this.punchT = Math.max(0, this.punchT - dt);
     const frozen = g.freeze > 0;
-    const t = this.torso;
-    const p = t.getPosition();
-    const v = t.getLinearVelocity();
+    const hip = this.hip, chest = this.chest;
+    const v = chest.getLinearVelocity();
     const M = this.mass;
     const grav = -g.world.getGravity().y;
 
-    const sh = this.shoulder();
-    this.aim = Math.atan2(input.ay - sh.y, input.ax - sh.x);
-    if (!isFinite(this.aim)) this.aim = 0;
-    const aimFace = Math.cos(this.aim) >= 0 ? 1 : -1;
+    const cp = chest.getPosition();
+    const ax = input.ax - cp.x, ay = input.ay - (cp.y + 0.15);
+    if (ax * ax + ay * ay > 0.04) this.aim = Math.atan2(ay, ax);
+    this.facing = Math.cos(this.aim) >= 0 ? 1 : -1;
 
     const stunned = this.stun > 0;
-    const crouch = input.d && !frozen;
+    const crouch = !!input.d && !frozen;
     const move = frozen ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
-    this.facing = aimFace;
 
-    // --- ground / hover
+    // ---- support
     const hit = this.jumpLock > 0 ? null : this.castGround();
     const rest = crouch ? CROUCH_REST : REST;
     this.grounded = false;
     this.groundFixture = null;
     let gvx = 0, gvy = 0, ice = false;
-    if (hit) {
+    if (hit && hit.d < rest + 0.2) {
       const hu = hit.fixture.getUserData() || {};
-      if (hu.bounce && !stunned && hit.d < rest + 0.1) {
+      const gb = hit.fixture.getBody();
+      if (hu.bounce && !stunned) {
         this.setAllVel(v.x, hu.bounce);
         this.jumpLock = 0.25;
         g.event(['bounce', r2(hit.point.x), r2(hit.point.y)]);
-      } else if (hit.d < rest + 0.12) {
-        const gb = hit.fixture.getBody();
+      } else {
         const gv = gb.getLinearVelocityFromWorldPoint(hit.point);
         gvx = gv.x; gvy = gv.y;
         ice = !!hu.ice;
         this.grounded = true;
-        this.groundBody = gb;
         this.groundFixture = hit.fixture;
         if (!stunned) {
-          const rel = v.y - gvy;
-          let acc = 260 * (rest - hit.d) - 26 * rel + grav;
-          acc = clamp(acc, 0, 90);
-          const F = V(0, acc * M);
-          t.applyForceToCenter(F, true);
-          if (gb.getType() === 'dynamic') gb.applyForce(V(0, -Math.min(acc, grav * 1.6) * M), hit.point, true);
+          const rel = hip.getLinearVelocity().y - gvy;
+          const acc = clamp(220 * (rest - hit.d) - 24 * rel + grav, 0, 75);
+          // lift from the neck: the body hangs below it like a puppet and self-rights
+          const ca = chest.getAngle(), cpos = chest.getPosition();
+          const neck = V(cpos.x - Math.sin(ca) * DIM.chestHH, cpos.y + Math.cos(ca) * DIM.chestHH);
+          chest.applyForce(V(0, acc * M), neck, true);
+          if (gb.getType() === 'dynamic') gb.applyForce(V(0, -Math.min(acc, grav * 1.5) * M), hit.point, true);
         }
       }
     }
     if (this.grounded) this.coyote = 0.1; else this.coyote = Math.max(0, this.coyote - dt);
 
-    if (!stunned) {
-      // upright
-      const ang = wrap(t.getAngle());
-      const lean = clamp(-(v.x - gvx) * 0.02, -0.15, 0.15);
-      t.applyTorque(clamp(-(ang - lean) * 320 - t.getAngularVelocity() * 34, -400, 400), true);
+    if (stunned) return;
 
-      // walk
-      const speed = crouch && this.grounded ? CROUCH_SPEED : SPEED;
-      const target = move * speed + (this.grounded ? gvx : 0);
-      const gain = this.grounded ? (ice ? 1.6 : 22) : 7;
-      const maxA = this.grounded ? (ice ? 8 : 70) : 30;
-      let ax = clamp((target - v.x) * gain, -maxA, maxA);
-      if (!this.grounded && move === 0) ax *= 0.15;
-      t.applyForceToCenter(V(ax * M, 0), true);
+    // ---- spine upright (lean into movement)
+    const lean = clamp((v.x - gvx) * -0.025, -0.25, 0.25);
+    this.turnTo(hip, lean * 0.5, 12, 0.8);
+    this.turnTo(chest, lean, 12, 0.8);
+    this.turnTo(this.head, 0, 6, 0.3);
 
-      // wind etc.
-      if (g.wind) t.applyForceToCenter(V(g.wind * M, 0), true);
+    // ---- horizontal movement
+    const speed = crouch && this.grounded ? SPEED * 0.45 : SPEED;
+    const target = move * speed + (this.grounded ? gvx : 0);
+    let accel;
+    if (this.grounded) accel = clamp((target - v.x) * (ice ? 1.5 : 16), ice ? -7 : -60, ice ? 7 : 60);
+    else accel = move ? clamp((target - v.x) * 9, -38, 38) : 0;
+    hip.applyForceToCenter(V(accel * M * 0.5, 0), true);
+    chest.applyForceToCenter(V(accel * M * 0.5, 0), true);
+    if (g.wind) chest.applyForceToCenter(V(g.wind * M, 0), true);
+    if (input.d && !this.grounded) hip.applyForceToCenter(V(0, -32 * M), true);
 
-      // fast fall
-      if (input.d && !this.grounded) t.applyForceToCenter(V(0, -35 * M), true);
+    // ---- walls
+    this.wallSide = 0;
+    if (!this.grounded) {
+      if (this.castWall(1)) this.wallSide = 1;
+      else if (this.castWall(-1)) this.wallSide = -1;
+      if (this.wallSide && move === this.wallSide && v.y < -3) chest.applyForceToCenter(V(0, (-3 - v.y) * 10 * M), true);
+    }
 
-      // walls
-      this.wallSide = 0;
-      if (!this.grounded) {
-        if (this.castWall(1)) this.wallSide = 1;
-        else if (this.castWall(-1)) this.wallSide = -1;
-        if (this.wallSide && move === this.wallSide && v.y < -2.5) t.applyForceToCenter(V(0, (-2.5 - v.y) * 12 * M), true);
-      }
-
-      // jump
-      if (this.jumpBuffer > 0 && !frozen) {
-        if (this.coyote > 0) {
-          this.setAllVel(v.x, JUMP + Math.max(0, gvy));
-          if (this.groundBody && this.groundBody.getType() === 'dynamic' && hit) {
-            this.groundBody.applyLinearImpulse(V(0, -M * 3), hit.point, true);
-          }
-          this.jumpBuffer = 0; this.coyote = 0; this.jumpLock = 0.2;
-          g.event(['jump', r2(p.x), r2(p.y - 1.2)]);
-        } else if (this.wallSide) {
-          this.setAllVel(-this.wallSide * 8.5, JUMP * 0.92);
-          this.jumpBuffer = 0; this.jumpLock = 0.18;
-          g.event(['jump', r2(p.x + this.wallSide * 0.3), r2(p.y)]);
-        }
+    // ---- jump
+    if (this.jumpBuffer > 0 && !frozen) {
+      if (this.coyote > 0) {
+        this.setAllVel(v.x, JUMP + Math.max(0, gvy));
+        if (hit && hit.fixture.getBody().getType() === 'dynamic') hit.fixture.getBody().applyLinearImpulse(V(0, -M * 4), hit.point, true);
+        this.jumpBuffer = 0; this.coyote = 0; this.jumpLock = 0.22;
+        g.event(['jump', r2(hip.getPosition().x), r2(hip.getPosition().y - REST)]);
+      } else if (this.wallSide) {
+        this.setAllVel(-this.wallSide * 9, JUMP * 0.95);
+        this.jumpBuffer = 0; this.jumpLock = 0.2;
       }
     }
 
-    this.animate(dt, move, crouch, stunned, gvx);
+    this.legForces(dt, move, crouch);
+    this.armForces();
+  }
+
+  legForces(dt, move, crouch) {
+    const f = this.facing;
+    let t0, t1, k0, k1, grip = 0.9;
+    if (!this.grounded) {
+      t0 = f * 0.45; t1 = -f * 0.2; k0 = -f * 0.2; k1 = -f * 0.55; grip = 0.35;
+    } else if (crouch) {
+      t0 = f * 1.1; t1 = f * 0.5; k0 = -f * 0.35; k1 = -f * 0.75;
+    } else if (move) {
+      // alternate which leg is thrown forward; the physics does the rest
+      this.stepT -= dt;
+      if (this.stepT <= 0) { this.stepT = 0.15; this.stepLeg = 1 - this.stepLeg; }
+      const fwd = move * 0.75, back = -move * 0.5;
+      const a = this.stepLeg === 0 ? fwd : back, b = this.stepLeg === 0 ? back : fwd;
+      t0 = a; t1 = b; k0 = a - move * 0.45; k1 = b - move * 0.2;
+    } else {
+      t0 = -0.3 + f * 0.08; t1 = 0.3 + f * 0.08; k0 = -0.18 - f * 0.1; k1 = 0.18 - f * 0.1;
+    }
+    const pd = (b, target, kp, kd) => b.applyTorque(clamp(kp * wrap(target - b.getAngle()) - kd * b.getAngularVelocity(), -30, 30), true);
+    pd(this.legs[0].u, t0, 14 * grip, 0.5); pd(this.legs[1].u, t1, 14 * grip, 0.5);
+    pd(this.legs[0].l, k0, 7 * grip, 0.25); pd(this.legs[1].l, k1, 7 * grip, 0.25);
+  }
+
+  armForces() {
+    const s = this.shoulder();
+    const dx = Math.cos(this.aim), dy = Math.sin(this.aim);
+    const armA = this.aim + Math.PI / 2;
+    const f = this.facing;
+    const w = this.weapon ? C.WEAPONS[this.weapon.type] : null;
+    for (let i = 0; i < 2; i++) {
+      const { u, l } = this.arms[i];
+      if (this.punchT > 0 && this.punchArm === i) {
+        this.pullTo(u, s.x + dx * 0.18, s.y + dy * 0.18, 40, 900);
+        this.pullTo(l, s.x + dx * 0.52, s.y + dy * 0.52, 40, 900);
+      } else if (w && i === 0) {
+        this.poseArm(0, s, armA, armA);
+      } else if (w && w.twoHand) {
+        this.poseArm(1, s, armA - f * 0.55, armA + f * 0.25);
+      } else {
+        // loose guard toward the cursor
+        const off = i === 0 ? 0 : -0.1;
+        this.pullTo(u, s.x + dx * 0.1, s.y + dy * 0.1 - 0.12 + off, 8, 100);
+        this.pullTo(l, s.x + dx * 0.3, s.y + dy * 0.3 - 0.08 + off, 8, 100);
+      }
+    }
   }
 
   setAllVel(vx, vy) {
+    const cvx = this.chest.getLinearVelocity().x;
     for (const b of this.bodies) {
       const bv = b.getLinearVelocity();
-      b.setLinearVelocity(V(vx + (bv.x - this.torso.getLinearVelocity().x) * 0.3, vy));
+      b.setLinearVelocity(V(vx + (bv.x - cvx) * 0.3, vy));
     }
   }
 
-  animate(dt, move, crouch, stunned, gvx) {
-    const f = this.facing;
-    const tA = this.torso.getAngle();
-    const relVx = this.torso.getLinearVelocity().x - gvx;
-    const torque = stunned ? 3 : 1;
-
-    // legs
-    let hips, knees;
-    if (!this.grounded) {
-      hips = [f * 0.7, f * -0.25];
-      knees = [-f * 1.3, -f * 0.5];
-    } else if (crouch) {
-      hips = [f * 1.3, f * 0.5];
-      knees = [-f * 2.1, -f * 1.6];
-    } else {
-      const amt = clamp(Math.abs(relVx) / SPEED, 0, 1);
-      this.phase += relVx * f * dt * 3.3;
-      const s = Math.sin(this.phase);
-      hips = [f * (s * 0.85 * amt + 0.1), f * (-s * 0.85 * amt - 0.1)];
-      knees = [-f * (0.25 + Math.max(0, -Math.cos(this.phase)) * 1.1 * amt), -f * (0.25 + Math.max(0, Math.cos(this.phase)) * 1.1 * amt)];
-    }
-    for (let i = 0; i < 2; i++) {
-      if (stunned) {
-        this.legs[i].hj.setMaxMotorTorque(torque); this.legs[i].hj.setMotorSpeed(0);
-        this.legs[i].kj.setMaxMotorTorque(torque); this.legs[i].kj.setMotorSpeed(0);
-      } else {
-        this.motor(this.legs[i].hj, hips[i], 14, 90);
-        this.motor(this.legs[i].kj, knees[i], 14, 60);
-      }
-    }
-
-    // arms
-    const aimRel = this.aim + Math.PI / 2 - tA;
-    const w = this.weapon ? C.WEAPONS[this.weapon.type] : null;
-    for (let i = 0; i < 2; i++) {
-      const arm = this.arms[i];
-      if (stunned) {
-        arm.sj.setMaxMotorTorque(torque); arm.sj.setMotorSpeed(0);
-        arm.ej.setMaxMotorTorque(torque); arm.ej.setMotorSpeed(0);
-        continue;
-      }
-      const punching = this.punchT > 0 && this.punchArm === i;
-      if (punching) {
-        this.motor(arm.sj, aimRel, 40, 400);
-        this.motor(arm.ej, 0, 40, 300);
-      } else if (w && (i === 0 || w.twoHand)) {
-        this.motor(arm.sj, aimRel + (i === 1 ? -0.12 * f : 0), 30, 160);
-        this.motor(arm.ej, i === 1 ? f * 0.35 : 0, 25, 80);
-      } else if (!w) {
-        // fists up, boxer style, loosely toward aim
-        this.motor(arm.sj, aimRel + f * (i === 0 ? -0.9 : -1.3), 12, 50);
-        this.motor(arm.ej, f * (i === 0 ? 1.9 : 2.1), 12, 40);
-      } else {
-        const swing = this.grounded ? Math.cos(this.phase) * 0.5 * clamp(Math.abs(relVx) / SPEED, 0, 1) : -0.8;
-        this.motor(arm.sj, -f * 0.15 + f * swing, 8, 30);
-        this.motor(arm.ej, f * 0.4, 8, 20);
-      }
-    }
-    this.neck.setMaxMotorTorque(stunned ? 0.5 : 8);
-    this.neck.setMotorSpeed(stunned ? 0 : clamp(-this.neck.getJointAngle() * 8, -10, 10));
-    this.punchT = Math.max(0, this.punchT - dt);
+  push(ix, iy) {
+    // spread an impulse over the core so the whole body reacts
+    this.chest.applyLinearImpulse(V(ix * 0.45, iy * 0.45), this.chest.getWorldCenter(), true);
+    this.hip.applyLinearImpulse(V(ix * 0.35, iy * 0.35), this.hip.getWorldCenter(), true);
+    this.head.applyLinearImpulse(V(ix * 0.2, iy * 0.2), this.head.getWorldCenter(), true);
   }
 
   damage(amount, by, stun = 0) {
-    if (!this.alive) return;
-    if (this.game.freeze > 0) return;
+    if (!this.alive || this.game.freeze > 0) return;
     this.hp -= amount;
     if (by && by !== this) this.lastHitBy = by;
     this.stun = Math.max(this.stun, stun);
@@ -356,18 +352,13 @@ class Character {
     if (!this.alive) return;
     this.alive = false;
     this.hp = 0;
+    const mask = C.CAT_WORLD | C.CAT_BODY | C.CAT_PROJ;
     for (const b of this.bodies) {
-      for (let f = b.getFixtureList(); f; f = f.getNext()) {
-        f.setFilterData({ groupIndex: this.group, categoryBits: C.CAT_BODY, maskBits: C.CAT_WORLD | C.CAT_BODY | C.CAT_PROJ });
-      }
-      b.setAngularDamping(0.3);
+      for (let f = b.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: this.group, categoryBits: C.CAT_BODY, maskBits: mask });
+      b.setAngularDamping(0.4);
     }
-    for (const j of this.joints) { j.setMaxMotorTorque(1.2); j.setMotorSpeed(0); }
-    // comedic death spin
-    this.torso.applyAngularImpulse((Math.random() - 0.5) * 6, true);
-    if (this.weapon) this.game.throwWeapon(this, 4);
-    const killer = by && by !== this ? by : this.lastHitBy;
-    this.game.onDeath(this, killer);
+    if (this.weapon) this.game.throwWeapon(this, 3);
+    this.game.onDeath(this, by && by !== this ? by : this.lastHitBy);
   }
 }
 
