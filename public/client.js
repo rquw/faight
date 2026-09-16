@@ -8,7 +8,8 @@ let INTERP = 0.1, snapGap = 1 / 30, lastSnapAt = 0;
 const KICK = { pistol: 2.2, ar: 1.1, shotgun: 6, sniper: 9, rpg: 6, minigun: 0.7, grenade: 0.5 };
 
 const $ = (id) => document.getElementById(id);
-const cv = $('c'), ctx = cv.getContext('2d');
+const cv = $('c');
+let ctx = cv.getContext('2d');
 let W = 0, H = 0, dpr = 1;
 
 // ---------------------------------------------------------------- state
@@ -72,7 +73,7 @@ function onMessage(m) {
       myId = m.id; roomCode = m.code;
       $('roomcode').textContent = m.code;
       $('menu').hidden = true; $('hud').hidden = false;
-      history.replaceState(null, '', '?code=' + m.code);
+      history.replaceState(null, '', '?code=' + m.code + location.hash);
       break;
     case 'roster':
       roster.clear();
@@ -82,6 +83,7 @@ function onMessage(m) {
     case 'map':
       map = m;
       map.deco = makeDeco(m);
+      mapSerial++;
       mapT = 0;
       snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear();
       fade = 1;
@@ -304,8 +306,8 @@ function handleEvent(e) {
       sfx(e[1] === 'lava' ? 'sizzle' : 'saw');
       break;
     case 'crack': spawnParticles(e[1], e[2], 18, { speed: 6, life: 1, size: 0.18, color: '#4a3a2c', g: 1.2 }); kick(0, 1, 0.25); sfx('crack'); break;
-    case 'add': if (map) map.shapes.push(e[1]); break;
-    case 'rm': if (map) map.shapes = map.shapes.filter(s => s.id !== e[1]); break;
+    case 'add': if (map) { map.shapes.push(e[1]); if (e[1].k === 0) levelVersion++; } break;
+    case 'rm': if (map) { if (map.shapes.some(s => s.id === e[1] && s.k === 0)) levelVersion++; map.shapes = map.shapes.filter(s => s.id !== e[1]); } break;
     case 'win': {
       const r = roster.get(e[1]);
       banner = { name: r ? r.name : '', color: r ? r.color : '#dddddd', draw: !r, t: 0 };
@@ -334,18 +336,70 @@ function makeDeco(m) {
   return { layers, stars };
 }
 
-function drawBackground(time) {
+// ---------------------------------------------------------------- static layers
+// The camera never moves, so sky, skyline, level geometry and vignette are rendered once into
+// offscreen canvases and blitted each frame (re-rendered on resize, new map or level changes).
+let mapSerial = 0, levelVersion = 0;
+const layers = { key: '', sky: null, city: null, level: null, levelKey: '', vignette: null };
+
+function makeLayer(draw, pad = 100) {
+  const c = document.createElement('canvas');
+  c.width = Math.ceil((W + pad * 2) * dpr); c.height = Math.ceil((H + pad * 2) * dpr);
+  const prev = ctx;
+  ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, pad * dpr, pad * dpr);
+  try { draw(); } finally { ctx = prev; }
+  return c;
+}
+const blitLayer = (c, pad = 100) => ctx.drawImage(c, -pad, -pad, W + pad * 2, H + pad * 2);
+
+function ensureLayers() {
+  const key = `${mapSerial}|${W}|${H}|${dpr}`;
+  if (layers.key !== key) {
+    layers.key = key;
+    // without twinkling stars sky and skyline can share one layer
+    layers.sky = map.deco.stars.length ? makeLayer(drawSky) : makeLayer(() => { drawSky(); drawSkyline(); });
+    layers.city = map.deco.stars.length ? makeLayer(drawSkyline) : null;
+    layers.vignette = makeLayer(drawVignette, 0);
+    layers.levelKey = '';
+  }
+  if (layers.levelKey !== key + '|' + levelVersion) {
+    layers.levelKey = key + '|' + levelVersion;
+    const statics = map.shapes.filter(sh => sh.k === 0).map(sh => ({ s: sh, x: sh.x, y: sh.y, a: sh.a }));
+    layers.level = makeLayer(() => { drawBlockSides(statics); drawBlockFronts(statics, 0); });
+  }
+}
+
+function drawSky() {
   const [top, bottom] = map.sky;
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, top); g.addColorStop(1, bottom);
   ctx.fillStyle = g;
   ctx.fillRect(-100, -100, W + 200, H + 200);
-  for (const s of map.deco.stars) {
-    ctx.globalAlpha = 0.4 + 0.4 * Math.sin(time + s.p);
+}
+
+function drawVignette() {
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.35)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+}
+
+function drawBackground(time) {
+  ensureLayers();
+  blitLayer(layers.sky);
+  if (map.deco.stars.length) {
     ctx.fillStyle = '#fff';
-    ctx.fillRect(s.x * W, s.y * H * 0.8, s.s, s.s);
+    for (const s of map.deco.stars) {
+      ctx.globalAlpha = 0.4 + 0.4 * Math.sin(time + s.p);
+      ctx.fillRect(s.x * W, s.y * H * 0.8, s.s, s.s);
+    }
+    ctx.globalAlpha = 1;
   }
-  ctx.globalAlpha = 1;
+  if (layers.city) blitLayer(layers.city);
+}
+
+function drawSkyline() {
+  const bottom = map.sky[1];
   const far = map.dark ? '#000000' : '#1b1b1b';
   for (const layer of map.deco.layers) {
     const f = layer.depth;
@@ -367,9 +421,16 @@ function rectCorners(s, x, y, a) {
   return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([px, py]) => [sx(x + px * c - py * sn), sy(y + px * sn + py * c)]);
 }
 
-function drawBlocks(list, time) {
+const shadeCache = new Map();
+function shadeC(base, amt) {
+  const k = base + amt;
+  let v = shadeCache.get(k);
+  if (!v) { v = shade(base, amt); shadeCache.set(k, v); }
+  return v;
+}
+
+function drawBlockSides(list) {
   const vx = W / 2, vy = H * 0.45, depth = 0.045;
-  // sides first
   for (const { s, x, y, a } of list) {
     if (s.s !== 'b' || s.hz === 'lava') continue;
     const front = rectCorners(s, x, y, a);
@@ -377,14 +438,16 @@ function drawBlocks(list, time) {
     const base = s.c || (s.cr ? '#3a3029' : '#26272a');
     for (let i = 0; i < 4; i++) {
       const j = (i + 1) % 4;
-      const ny = front[i][0] - front[j][0];
-      ctx.fillStyle = shade(base, i === 2 ? 38 : i === 0 ? -8 : 18) ;
+      ctx.fillStyle = shadeC(base, i === 2 ? 38 : i === 0 ? -8 : 18);
       ctx.beginPath();
       ctx.moveTo(front[i][0], front[i][1]); ctx.lineTo(front[j][0], front[j][1]);
       ctx.lineTo(back[j][0], back[j][1]); ctx.lineTo(back[i][0], back[i][1]);
       ctx.fill();
     }
   }
+}
+
+function drawBlockFronts(list, time) {
   for (const { s, x, y, a } of list) {
     if (s.hz === 'lava') continue;
     if (s.s === 'c') { drawCircleProp(s, x, y, a, time); continue; }
@@ -395,7 +458,7 @@ function drawBlocks(list, time) {
     front.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py));
     ctx.fill();
     if (s.cr) {
-      ctx.strokeStyle = shade(base, 22);
+      ctx.strokeStyle = shadeC(base, 22);
       ctx.lineWidth = Math.max(1, 0.07 * cam.s);
       ctx.beginPath();
       const inset = front.map(([px, py]) => { const cxs = sx(x), cys = sy(y); return [cxs + (px - cxs) * 0.8, cys + (py - cys) * 0.8]; });
@@ -479,6 +542,25 @@ function drawGun(type, S) {
   }
 }
 
+const gunSprites = new Map();
+function gunSprite(type) {
+  const key = `${type}|${cam.s.toFixed(2)}|${dpr}`;
+  let spr = gunSprites.get(key);
+  if (spr) return spr;
+  const S = cam.s, ox = 0.6 * S + 14, oy = 0.4 * S + 14, w = 1.8 * S + 28, h = 0.8 * S + 28;
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(w * dpr); c.height = Math.ceil(h * dpr);
+  const prev = ctx;
+  ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, ox * dpr, oy * dpr);
+  ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 10 * dpr;
+  try { drawGun(type, S); } finally { ctx = prev; }
+  spr = { c, ox, oy, w, h };
+  if (gunSprites.size > 60) gunSprites.clear();
+  gunSprites.set(key, spr);
+  return spr;
+}
+
 function seg(x, y, a, hh) { const s = Math.sin(a), c = Math.cos(a); return [x - s * hh, y + c * hh, x + s * hh, y - c * hh]; }
 
 function drawPlayer(p, time, dt) {
@@ -545,9 +627,23 @@ function drawPlayer(p, time, dt) {
 let lastFrame = performance.now();
 const headPos = new Map();
 
+const PERF = location.hash === '#perf';
+let perfMs = 0, perfN = 0, perfEl = null;
 function frame() {
   requestAnimationFrame(frame);
   const nowMs = performance.now();
+  if (PERF) {
+    render(nowMs);
+    perfMs += performance.now() - nowMs;
+    if (++perfN === 60) {
+      if (!perfEl) { perfEl = document.createElement('div'); perfEl.style.cssText = 'position:fixed;bottom:8px;right:12px;font:12px monospace;color:#fff;background:#000a;padding:2px 6px;z-index:9'; perfEl.id = 'perf'; document.body.appendChild(perfEl); }
+      perfEl.textContent = (perfMs / 60).toFixed(2) + ' ms/frame';
+      perfMs = 0; perfN = 0;
+    }
+  } else render(nowMs);
+}
+
+function render(nowMs) {
   const dt = Math.min(0.05, (nowMs - lastFrame) / 1000);
   lastFrame = nowMs;
   const time = nowMs / 1000;
@@ -585,6 +681,7 @@ function frame() {
   // props
   const list = [];
   for (const s of map.shapes) {
+    if (s.k === 0) continue;
     let x = s.x, y = s.y, a = s.a;
     if (s.k !== 0 && A) {
       const oa = A.O.get(s.id), ob = B.O.get(s.id) || oa;
@@ -600,7 +697,9 @@ function frame() {
     const c = Math.cos(p.a), s = Math.sin(p.a);
     ctx.beginPath(); ctx.moveTo(sx(ax), sy(ay)); ctx.lineTo(sx(p.x + lx * c - ly * s), sy(p.y + lx * s + ly * c)); ctx.stroke();
   }
-  drawBlocks(list, time);
+  drawBlockSides(list);
+  blitLayer(layers.level);
+  drawBlockFronts(list, time);
 
   if (A) {
     // items
@@ -610,9 +709,13 @@ function frame() {
       if (ib[5] === 2 && Math.sin(time * 18) > 0) continue;
       ctx.save();
       ctx.translate(sx(x), sy(y)); ctx.rotate(-a);
-      if (ib[5]) { ctx.shadowColor = 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 10; }
-      else ctx.globalAlpha = 0.6;
-      drawGun(WEAPONS[ib[1]], cam.s);
+      if (ib[5]) {
+        const spr = gunSprite(WEAPONS[ib[1]]);
+        ctx.drawImage(spr.c, -spr.ox, -spr.oy, spr.w, spr.h);
+      } else {
+        ctx.globalAlpha = 0.6;
+        drawGun(WEAPONS[ib[1]], cam.s);
+      }
       ctx.restore();
     }
     // rockets / grenades
@@ -707,9 +810,7 @@ function frame() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   // vignette
-  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
-  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.35)');
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(layers.vignette, 0, 0, W, H);
 
   // names shortly after the round starts so everyone finds themselves
   if (mapT < 3.5) {
