@@ -30,7 +30,7 @@ function newCode() {
   return null;
 }
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, perMessageDeflate: { threshold: 256, zlibDeflateOptions: { level: 3 } } });
 wss.on('connection', (ws) => {
   let room = null, player = null;
   ws.isAlive = true;

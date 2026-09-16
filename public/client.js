@@ -4,7 +4,7 @@ const WEAPONS = ['pistol', 'ar', 'shotgun', 'sniper', 'rpg', 'minigun', 'grenade
 const WNAME = { pistol: 'Pistole', ar: 'Sturmgewehr', shotgun: 'Schrotflinte', sniper: 'Sniper', rpg: 'Raketenwerfer', minigun: 'Minigun', grenade: 'Granaten' };
 const DIM = { torsoHH: 0.42, headR: 0.25, uArmHH: 0.2, lArmHH: 0.19, uLegHH: 0.25, lLegHH: 0.25 };
 const LIMB_HH = [DIM.torsoHH, 0, DIM.uArmHH, DIM.lArmHH, DIM.uArmHH, DIM.lArmHH, DIM.uLegHH, DIM.lLegHH, DIM.uLegHH, DIM.lLegHH];
-const INTERP = 0.1;
+const INTERP = 0.12;
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -49,16 +49,21 @@ $('copy').onclick = () => {
 };
 $('mute').onclick = () => { muted = !muted; $('mute').textContent = muted ? '🔇' : '🔊'; };
 
-function connect(onOpen) {
-  if (ws) ws.close();
-  $('err').textContent = 'Verbinde…';
-  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
-  ws.onopen = () => { $('err').textContent = ''; onOpen(); };
-  ws.onerror = () => { $('err').textContent = 'Server nicht erreichbar (Render wacht evtl. gerade auf – nochmal versuchen)'; };
-  ws.onclose = () => {
+function connect(onOpen, attempt = 0) {
+  if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
+  $('err').textContent = attempt ? `Server wacht auf… (${attempt * 3}s, kann bis zu 1 Min dauern)` : 'Verbinde…';
+  const sock = ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+  let opened = false;
+  sock.onopen = () => { opened = true; $('err').textContent = ''; onOpen(); };
+  sock.onclose = () => {
+    if (!opened) {
+      if (attempt < 25) setTimeout(() => connect(onOpen, attempt + 1), 3000);
+      else $('err').textContent = 'Server nicht erreichbar';
+      return;
+    }
     if (myId) { $('menu').hidden = false; $('hud').hidden = true; $('err').textContent = 'Verbindung verloren'; myId = 0; map = null; }
   };
-  ws.onmessage = (ev) => onMessage(JSON.parse(ev.data));
+  sock.onmessage = (ev) => onMessage(JSON.parse(ev.data));
 }
 
 setInterval(() => { if (ws && ws.readyState === 1 && myId) ws.send(JSON.stringify({ t: 'ping', c: performance.now() })); }, 2000);
@@ -415,13 +420,13 @@ function limbEnds(x, y, a, hh) {
 }
 
 function drawPlayer(p, time) {
-  const [id, alive, hp, aim1000, wIdx, ammo, stunned, spin] = p;
+  const [id, alive, hp, aim100, wIdx, ammo, stunned, spin] = p;
   const r = roster.get(id) || lastPlayers.get(id) || { name: '?', color: '#fff' };
   const color = r.color;
   const parts = [];
-  for (let i = 0; i < 10; i++) parts.push([p[8 + i * 3] / 100, p[9 + i * 3] / 100, p[10 + i * 3] / 1000]);
+  for (let i = 0; i < 10; i++) parts.push([p[8 + i * 3] / 100, p[9 + i * 3] / 100, p[10 + i * 3] / 100]);
   const S = cam.s;
-  const aim = aim1000 / 1000;
+  const aim = aim100 / 100;
   ctx.lineCap = 'round';
   const seg = (i, col, width) => {
     const [x, y, a] = parts[i];
@@ -552,7 +557,7 @@ function frame() {
     let x = s.x, y = s.y, a = s.a;
     if (s.k !== 0 && A) {
       const oa = A.O.get(s.id), ob = B.O.get(s.id) || oa;
-      if (oa) { x = lerp(oa[1], ob[1], k) / 100; y = lerp(oa[2], ob[2], k) / 100; a = lerpA(oa[3] / 1000, ob[3] / 1000, k); }
+      if (oa) { x = lerp(oa[1], ob[1], k) / 100; y = lerp(oa[2], ob[2], k) / 100; a = lerpA(oa[3] / 100, ob[3] / 100, k); }
     }
     propPos.set(s.id, [x, y, a]);
   }
@@ -570,7 +575,7 @@ function frame() {
     // items
     for (const [id, ia] of B.I) {
       const ib = ia, iaa = A.I.get(id) || ib;
-      const x = lerp(iaa[2], ib[2], k) / 100, y = lerp(iaa[3], ib[3], k) / 100, a = lerpA(iaa[4] / 1000, ib[4] / 1000, k);
+      const x = lerp(iaa[2], ib[2], k) / 100, y = lerp(iaa[3], ib[3], k) / 100, a = lerpA(iaa[4] / 100, ib[4] / 100, k);
       const state = ib[5];
       if (state === 2 && Math.sin(time * 20) > 0) continue;
       if (state) {
@@ -587,7 +592,7 @@ function frame() {
     // projectiles
     for (const [id, rb] of B.R) {
       const ra = A.R.get(id) || rb;
-      const x = lerp(ra[2], rb[2], k) / 100, y = lerp(ra[3], rb[3], k) / 100, a = lerpA(ra[4] / 1000, rb[4] / 1000, k);
+      const x = lerp(ra[2], rb[2], k) / 100, y = lerp(ra[3], rb[3], k) / 100, a = lerpA(ra[4] / 100, rb[4] / 100, k);
       ctx.save(); ctx.translate(sx(x), sy(y)); ctx.rotate(-a);
       if (rb[1] === 0) {
         ctx.fillStyle = '#556b2f'; ctx.fillRect(-0.25 * cam.s, -0.08 * cam.s, 0.4 * cam.s, 0.16 * cam.s);
@@ -605,11 +610,11 @@ function frame() {
       const pa = A.P.get(pb[0]);
       if (!pa) return pb;
       const out = pb.slice();
-      out[3] = Math.round(lerpA(pa[3] / 1000, pb[3] / 1000, k) * 1000);
+      out[3] = Math.round(lerpA(pa[3] / 100, pb[3] / 100, k) * 100);
       for (let i = 0; i < 10; i++) {
         const o = 8 + i * 3;
         out[o] = lerp(pa[o], pb[o], k); out[o + 1] = lerp(pa[o + 1], pb[o + 1], k);
-        out[o + 2] = lerpA(pa[o + 2] / 1000, pb[o + 2] / 1000, k) * 1000;
+        out[o + 2] = lerpA(pa[o + 2] / 100, pb[o + 2] / 100, k) * 100;
       }
       return out;
     }).sort((a, b) => a[1] - b[1] || (a[0] === myId) - (b[0] === myId));

@@ -8,7 +8,6 @@ const DT = 1 / 60;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r2 = (n) => Math.round(n * 100) / 100;
 const i100 = (n) => Math.round(n * 100);
-const i1000 = (n) => Math.round(n * 1000);
 
 class Game {
   constructor(code) {
@@ -255,7 +254,7 @@ class Game {
     this.cleanup();
     this.roundLogic();
 
-    if (this.tickN % 2 === 0) this.sendSnapshot();
+    if (this.tickN % (this.chars.length > 10 ? 3 : 2) === 0) this.sendSnapshot();
   }
 
   checkHazards() {
@@ -620,27 +619,27 @@ class Game {
     const P = [];
     for (const c of this.chars) {
       if (c.gone) continue;
-      const row = [c.player.id, c.alive ? 1 : 0, Math.max(0, Math.round(c.hp)), i1000(c.aim),
+      const row = [c.player.id, c.alive ? 1 : 0, Math.max(0, Math.round(c.hp)), i100(c.aim),
         c.weapon ? C.ORDER.indexOf(c.weapon.type) : -1, c.weapon ? c.weapon.ammo : 0, c.stun > 0 ? 1 : 0,
         c.weapon && c.weapon.spin ? Math.round(c.weapon.spin * 100) : 0];
-      for (const b of c.bodies) { const q = b.getPosition(); row.push(i100(q.x), i100(q.y), i1000(b.getAngle())); }
+      for (const b of c.bodies) { const q = b.getPosition(); row.push(i100(q.x), i100(q.y), i100(b.getAngle())); }
       P.push(row);
     }
     const O = [];
     for (const [id, b] of this.props) {
       if (b.getType() === 'static') continue;
       const q = b.getPosition();
-      O.push([id, i100(q.x), i100(q.y), i1000(b.getAngle())]);
+      O.push([id, i100(q.x), i100(q.y), i100(b.getAngle())]);
     }
     const I = [];
     for (const it of this.items.values()) {
       const q = it.body.getPosition();
-      I.push([it.id, C.ORDER.indexOf(it.type), i100(q.x), i100(q.y), i1000(it.body.getAngle()), it.ammo > 0 ? (it.ttl < 5 ? 2 : 1) : 0]);
+      I.push([it.id, C.ORDER.indexOf(it.type), i100(q.x), i100(q.y), i100(it.body.getAngle()), it.ammo > 0 ? (it.ttl < 5 ? 2 : 1) : 0]);
     }
     const R = [];
     for (const pr of this.projs.values()) {
       const q = pr.body.getPosition();
-      R.push([pr.id, pr.type === 'rpg' ? 0 : 1, i100(q.x), i100(q.y), i1000(pr.body.getAngle()), Math.round(pr.life * 10)]);
+      R.push([pr.id, pr.type === 'rpg' ? 0 : 1, i100(q.x), i100(q.y), i100(pr.body.getAngle()), Math.round(pr.life * 10)]);
     }
     const msg = { t: 's', tm: Math.round(this.time * 1000), P, O, I, R, e: this.events, fz: this.freeze > 0 ? 1 : 0, wd: this.wind };
     this.events = [];
