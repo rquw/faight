@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>faight</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥊</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="menu">
+  <div class="card">
+    <h1 class="logo">f<span>ai</span>ght</h1>
+    <p class="tag">Stick-Figuren. Physik. Freundschaften zerstören.</p>
+    <label>Name<input id="name" maxlength="14" placeholder="Dein Name" autocomplete="off"></label>
+    <button id="create" class="big">Raum erstellen</button>
+    <div class="or">oder</div>
+    <div class="row">
+      <input id="code" maxlength="4" inputmode="numeric" placeholder="1234" autocomplete="off">
+      <button id="join">Beitreten</button>
+    </div>
+    <p id="err"></p>
+    <div class="keys">
+      <span><b>A</b><b>D</b> laufen</span>
+      <span><b>Space</b> springen</span>
+      <span><b>S</b> ducken / schneller fallen</span>
+      <span><b>Klick</b> schießen / schlagen</span>
+      <span><b>Q</b> / <b>Rechtsklick</b> Waffe werfen</span>
+    </div>
+  </div>
+</div>
+
+<div id="hud" hidden>
+  <div id="room"><span>Raum</span> <b id="roomcode"></b><button id="copy" title="Link kopieren">🔗</button></div>
+  <div id="scores"></div>
+  <div id="feed"></div>
+  <div id="ping"></div>
+  <button id="mute" title="Ton">🔊</button>
+</div>
+
+<script src="client.js"></script>
+</body>
+</html>

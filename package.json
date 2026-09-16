@@ -1,0 +1,18 @@
+{
+  "name": "faight",
+  "version": "1.0.0",
+  "description": "Physics stick fighting with friends",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "planck": "^1.5.0",
+    "ws": "^8.21.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
