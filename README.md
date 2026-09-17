@@ -24,7 +24,7 @@ Leere Waffen fliegen automatisch weg. Ohne Waffe wird geschlagen.
 
 **Waffen:** Pistole, Sturmgewehr, Schrotflinte, Sniper, Raketenwerfer, Minigun, Granaten – fallen regelmäßig vom Himmel.
 
-**Maps:** Fabrik, Lagerhalle, Burg, Lavahöhle, Baustelle, Wippe, Dächer, Sägewerk, Mond, Eisberg, Sturm, Kistenregen, Schaukeln, Windmühle. Die Map wächst mit der Spielerzahl, die Kamera zeigt immer die ganze Map.
+**Maps:** Fabrik, Lagerhalle, Burg, Lavahöhle, Baustelle, Wippe, Dächer, Sägewerk, Mond, Eisberg, Laternen, Kistenregen, Schaukeln, Windmühle. Die Map wächst mit der Spielerzahl, die Kamera zeigt immer die ganze Map.
 
 ## Lokal
 ```

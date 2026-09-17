@@ -99,7 +99,7 @@ class Game {
     this.props = new Map(); this.items = new Map(); this.projs = new Map(); this.bullets = [];
     this.chars = []; this.ropes = []; this.hazards = []; this.tickers = []; this.breaks = [];
     this.nextObj = 1;
-    this.time = 0; this.freeze = 0.8; this.wind = 0; this.ending = null;
+    this.time = 0; this.freeze = 0.8; this.ending = null;
     this.dropTimer = 2;
     this.pending = [];
     this.world.on('begin-contact', (c) => this.onContact(c));
@@ -641,7 +641,7 @@ class Game {
       const q = pr.body.getPosition();
       R.push([pr.id, pr.type === 'rpg' ? 0 : 1, i100(q.x), i100(q.y), i100(pr.body.getAngle())]);
     }
-    const msg = { t: 's', tm: Math.round(this.time * 1000), P, O, I, R, e: this.events, wd: this.wind };
+    const msg = { t: 's', tm: Math.round(this.time * 1000), P, O, I, R, e: this.events };
     this.events = [];
     this.broadcast(msg);
   }

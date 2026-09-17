@@ -308,7 +308,6 @@ class Character {
 
     // ---- run: same push on the ground and in the air, drag does the limiting
     if (move) for (const b of this.bodies) b.applyForceToCenter(V(move * RUN_ACCEL * b.getMass(), 0), true);
-    if (g.wind) for (const b of this.bodies) b.applyForceToCenter(V(g.wind * 2.5 * b.getMass(), 0), true);
     if (input.d && !this.grounded) hip.applyForceToCenter(V(0, -90 * M), true);
 
     // ---- walls

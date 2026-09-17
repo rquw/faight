@@ -158,7 +158,7 @@ function onSnap(s) {
   if (clockOffset === null || !snaps.length) clockOffset = t - now;
   else clockOffset += ((t - now) - clockOffset) * 0.05;
   if (t - now > clockOffset + 0.06) clockOffset = t - now;
-  const snap = { t, P: new Map(), O: new Map(), I: new Map(), R: new Map(), wd: s.wd };
+  const snap = { t, P: new Map(), O: new Map(), I: new Map(), R: new Map() };
   for (const p of s.P) snap.P.set(p[0], p);
   for (const o of s.O) snap.O.set(o[0], o);
   for (const i of s.I) snap.I.set(i[0], i);
@@ -1023,17 +1023,6 @@ function render(nowMs) {
   ctx.globalAlpha = 1;
   particles = particles.filter(p => p.life > 0);
   if (particles.length > 1200) particles.splice(0, particles.length - 1200);
-
-  // wind streaks
-  if (B && B.wd) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5;
-    const dir = Math.sign(B.wd);
-    for (let i = 0; i < 50; i++) {
-      const y = ((i * 97) % H);
-      const x = ((((i * 173 + time * 900 * dir) % (W + 200)) + W + 200) % (W + 200)) - 100;
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - dir * 60, y); ctx.stroke();
-    }
-  }
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 

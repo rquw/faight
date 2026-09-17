@@ -223,7 +223,7 @@ const maps = [
     },
   },
   {
-    name: 'Sturm', sky: ['#7e8a92', '#b5bec2'],
+    name: 'Laternen', sky: ['#7e8a92', '#b5bec2'],
     build(m) {
       const { X } = m;
       m.floor(X(0.12), X(0.88), 4, 4);
@@ -234,10 +234,6 @@ const maps = [
       m.floor(X(0.4), X(0.6), 13, 0.5); m.wall(X(0.4) + 0.25, 13, 14.3, 0.5); m.wall(X(0.6) - 0.25, 13, 14.3, 0.5);
       m.block(X(0.18), 4, X(0.18) + 1.4, 5.5); m.block(X(0.82) - 1.4, 4, X(0.82), 5.5);
       m.spawnRow(X(0.14), X(0.86), 4);
-      m.tick((t, dt, game) => {
-        const c = t % 15;
-        game.wind = c < 5 ? 0 : c < 10 ? 13 : -13;
-      });
     },
   },
   {
