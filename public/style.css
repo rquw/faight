@@ -64,3 +64,9 @@ body.touch .score { font-size: 11px; }
 #mappick-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 #mappick-list button { font-size: 13px; padding: 12px 8px; }
 #mappick-list button.on { background: #f2c12e; color: #111; }
+
+#chatbar { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(460px, calc(100% - 32px)); z-index: 4; }
+#chatbar input { font-family: Arial, sans-serif; font-size: 15px; padding: 10px 12px; background: rgba(16,16,16,0.88); border-color: #444; }
+#chatlog { position: fixed; left: 14px; bottom: 34px; display: flex; flex-direction: column; gap: 3px; pointer-events: none; font-family: Arial, sans-serif; font-size: 13px; max-width: min(420px, 60vw); z-index: 3; }
+#chatlog div { color: #fff; text-shadow: 0 1px 2px #000; transition: opacity 0.6s; overflow-wrap: anywhere; }
+#chatlog b { margin-right: 5px; }

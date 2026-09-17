@@ -45,6 +45,7 @@ wss.on('connection', (ws) => {
       return room.startRound();
     }
     if (msg.t === 'queue' && player) return room.queueMap(player, msg.map);
+    if (msg.t === 'chat' && player) return room.chat(player, msg.text);
     if (msg.t === 'bot' && player && player.name.toLowerCase() === 'fabiolul') {
       if (room.players.size < 32) room.addBot();
       return;

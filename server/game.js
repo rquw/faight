@@ -116,6 +116,15 @@ class Game {
 
   event(e) { this.events.push(e); }
 
+  chat(p, text) {
+    if (this.time - (p.lastChat || -9) < 0.8 && p.lastChatRound === this.mapDef) return;
+    const clean = String(text || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80);
+    if (!clean) return;
+    p.lastChat = this.time;
+    p.lastChatRound = this.mapDef;
+    this.event(['chat', p.id, clean]);
+  }
+
   queueMap(p, name) {
     if (p.id !== this.hostId) return;
     const i = MAPS.findIndex(m => m.name === name);

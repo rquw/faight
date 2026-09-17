@@ -51,6 +51,44 @@ $('copy').onclick = () => {
 };
 $('mute').onclick = () => { muted = !muted; $('mute').textContent = muted ? 'Ton aus' : 'Ton an'; };
 
+// chat: Enter opens the box, Enter sends, Esc cancels
+const chatBar = $('chatbar'), chatIn = $('chatin');
+const chatBubbles = new Map();
+function openChat() {
+  for (const k in keys) keys[k] = 0;
+  sendInput();
+  chatBar.hidden = false;
+  chatIn.value = '';
+  chatIn.focus();
+}
+function closeChat() { chatBar.hidden = true; chatIn.blur(); }
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !myId || !chatBar.hidden || e.target.tagName === 'INPUT') return;
+  e.preventDefault();
+  openChat();
+});
+chatIn.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const text = chatIn.value.trim();
+    if (text && ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'chat', text }));
+    closeChat();
+  } else if (e.key === 'Escape') closeChat();
+});
+function chatLog(id, text) {
+  const r = roster.get(id);
+  const row = document.createElement('div');
+  const name = document.createElement('b');
+  name.textContent = r ? r.name + ':' : '?:';
+  name.style.color = r ? r.color : '#ccc';
+  row.append(name, text);
+  $('chatlog').appendChild(row);
+  while ($('chatlog').children.length > 5) $('chatlog').firstChild.remove();
+  setTimeout(() => { row.style.opacity = '0'; }, 7000);
+  setTimeout(() => row.remove(), 7700);
+}
+
 // host map picker: L (or the Maps button) queues the next map
 function toggleMapPick() {
   if (!myId || hostId !== myId) return;
@@ -596,6 +634,11 @@ function handleEvent(e) {
     } break;
     case 'hp': hpShow.set(e[1], { hp: e[2], t: 1 }); break;
     case 'slow': slowUntil = performance.now() + e[1] * 1000; break;
+    case 'chat':
+      chatBubbles.set(e[1], { text: e[2], t: 5 });
+      chatLog(e[1], e[2]);
+      sfx('chat');
+      break;
     case 'win': {
       const r = roster.get(e[1]);
       banner = { name: r ? r.name : '', color: r ? r.color : '#dddddd', draw: !r, t: 0 };
@@ -717,44 +760,88 @@ function shadeC(base, amt) {
   return v;
 }
 
+// block sides are batched per colour (one fill per shade instead of four per block)
+const sideBatches = new Map();
 function drawBlockSides(list) {
-  const vx = W / 2, vy = H * 0.45, depth = 0.045;
+  const vx = W / 2, vy = H * 0.45, depth = 0.045, S = cam.s;
+  sideBatches.clear();
+  const fx = new Float64Array(4), fy = new Float64Array(4);
   for (const { s, x, y, a } of list) {
     if (s.s !== 'b' || s.hz === 'lava') continue;
-    const front = rectCorners(s, x, y, a);
-    const back = front.map(([px, py]) => [px + (vx - px) * depth, py + (vy - py) * depth]);
+    const c = Math.cos(a), sn = Math.sin(a), hw = s.w / 2, hh = s.h / 2;
+    const cx = sx(x), cy = sy(y);
+    // corners in screen space: (-hw,-hh) (hw,-hh) (hw,hh) (-hw,hh)
+    fx[0] = cx + (-hw * c + hh * sn) * S; fy[0] = cy - (-hw * sn - hh * c) * S;
+    fx[1] = cx + (hw * c + hh * sn) * S;  fy[1] = cy - (hw * sn - hh * c) * S;
+    fx[2] = cx + (hw * c - hh * sn) * S;  fy[2] = cy - (hw * sn + hh * c) * S;
+    fx[3] = cx + (-hw * c - hh * sn) * S; fy[3] = cy - (-hw * sn + hh * c) * S;
     const base = s.c || (s.cr ? '#3a3029' : '#26272a');
+    let b = sideBatches.get(base);
+    if (!b) { b = [[], [], []]; sideBatches.set(base, b); }
     for (let i = 0; i < 4; i++) {
-      const j = (i + 1) % 4;
-      ctx.fillStyle = shadeC(base, i === 2 ? 38 : i === 0 ? -8 : 18);
+      const k = (i + 1) % 4;
+      const bucket = b[i === 2 ? 2 : i === 0 ? 0 : 1];
+      bucket.push(fx[i], fy[i], fx[k], fy[k], fx[k] + (vx - fx[k]) * depth, fy[k] + (vy - fy[k]) * depth, fx[i] + (vx - fx[i]) * depth, fy[i] + (vy - fy[i]) * depth);
+    }
+  }
+  const shades = [-8, 18, 38];
+  for (const [base, buckets] of sideBatches) {
+    for (let k = 0; k < 3; k++) {
+      const q = buckets[k];
+      if (!q.length) continue;
+      ctx.fillStyle = shadeC(base, shades[k]);
       ctx.beginPath();
-      ctx.moveTo(front[i][0], front[i][1]); ctx.lineTo(front[j][0], front[j][1]);
-      ctx.lineTo(back[j][0], back[j][1]); ctx.lineTo(back[i][0], back[i][1]);
+      for (let i = 0; i < q.length; i += 8) {
+        ctx.moveTo(q[i], q[i + 1]); ctx.lineTo(q[i + 2], q[i + 3]); ctx.lineTo(q[i + 4], q[i + 5]); ctx.lineTo(q[i + 6], q[i + 7]); ctx.closePath();
+      }
       ctx.fill();
     }
   }
+}
+
+// crate faces (fill + inset frame + diagonal) are pre-rendered once per size/colour/zoom
+const crateSprites = new Map();
+function crateSprite(s) {
+  const base = s.c || '#3a3029';
+  const key = `${s.w}|${s.h}|${base}|${cam.s.toFixed(2)}|${dpr}`;
+  let spr = crateSprites.get(key);
+  if (spr) return spr;
+  const w = s.w * cam.s, h = s.h * cam.s, pad = 2;
+  const c = document.createElement('canvas');
+  c.width = Math.ceil((w + pad * 2) * dpr); c.height = Math.ceil((h + pad * 2) * dpr);
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, (pad + w / 2) * dpr, (pad + h / 2) * dpr);
+  g.fillStyle = base;
+  g.fillRect(-w / 2, -h / 2, w, h);
+  g.strokeStyle = shadeC(base, 22);
+  g.lineWidth = Math.max(1, 0.07 * cam.s);
+  g.beginPath();
+  g.rect(-w * 0.4, -h * 0.4, w * 0.8, h * 0.8);
+  g.moveTo(-w * 0.4, h * 0.4); g.lineTo(w * 0.4, -h * 0.4);
+  g.stroke();
+  spr = { c, w: w + pad * 2, h: h + pad * 2 };
+  if (crateSprites.size > 200) crateSprites.clear();
+  crateSprites.set(key, spr);
+  return spr;
 }
 
 function drawBlockFronts(list, time) {
   for (const { s, x, y, a } of list) {
     if (s.hz === 'lava') continue;
     if (s.s === 'c') { drawCircleProp(s, x, y, a, time); continue; }
+    if (s.cr) {
+      const spr = crateSprite(s);
+      const px = sx(x), py = sy(y);
+      if (a === 0) ctx.drawImage(spr.c, px - spr.w / 2, py - spr.h / 2, spr.w, spr.h);
+      else { ctx.save(); ctx.translate(px, py); ctx.rotate(-a); ctx.drawImage(spr.c, -spr.w / 2, -spr.h / 2, spr.w, spr.h); ctx.restore(); }
+      continue;
+    }
     const front = rectCorners(s, x, y, a);
-    const base = s.c || (s.cr ? '#3a3029' : '#26272a');
+    const base = s.c || '#26272a';
     ctx.fillStyle = base;
     ctx.beginPath();
-    front.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py));
+    ctx.moveTo(front[0][0], front[0][1]); ctx.lineTo(front[1][0], front[1][1]); ctx.lineTo(front[2][0], front[2][1]); ctx.lineTo(front[3][0], front[3][1]);
     ctx.fill();
-    if (s.cr) {
-      ctx.strokeStyle = shadeC(base, 22);
-      ctx.lineWidth = Math.max(1, 0.07 * cam.s);
-      ctx.beginPath();
-      const inset = front.map(([px, py]) => { const cxs = sx(x), cys = sy(y); return [cxs + (px - cxs) * 0.8, cys + (py - cys) * 0.8]; });
-      inset.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py));
-      ctx.closePath();
-      ctx.moveTo(inset[0][0], inset[0][1]); ctx.lineTo(inset[2][0], inset[2][1]);
-      ctx.stroke();
-    }
     if (s.ice) {
       ctx.strokeStyle = 'rgba(210,240,255,0.55)';
       ctx.lineWidth = Math.max(1, 0.06 * cam.s);
@@ -1109,6 +1196,41 @@ function render(nowMs) {
   // vignette
   ctx.drawImage(layers.vignette, 0, 0, W, H);
 
+  // chat bubbles
+  if (chatBubbles.size) {
+    ctx.font = '700 13px Arial, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const [id, b] of chatBubbles) {
+      b.t -= dt;
+      const h = headPos.get(id);
+      if (b.t <= 0 || !h) { if (b.t <= 0) chatBubbles.delete(id); continue; }
+      // wrap into lines of at most ~200px
+      if (!b.lines) {
+        b.lines = [];
+        let line = '';
+        for (const word of b.text.split(' ')) {
+          const test = line ? line + ' ' + word : word;
+          if (ctx.measureText(test).width > 200 && line) { b.lines.push(line); line = word; } else line = test;
+        }
+        if (line) b.lines.push(line);
+        b.w = Math.min(220, Math.max(...b.lines.map(l => ctx.measureText(l).width))) + 16;
+      }
+      const lh = 16, bh = b.lines.length * lh + 10;
+      const x = sx(h.hx) + cam.ox * cam.s, bottom = sy(h.hy + 0.75) + cam.oy * cam.s;
+      const top = bottom - bh;
+      ctx.globalAlpha = Math.min(1, b.t / 0.4);
+      ctx.fillStyle = 'rgba(250,250,250,0.95)';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(x - b.w / 2, top, b.w, bh, 7); else ctx.rect(x - b.w / 2, top, b.w, bh);
+      ctx.moveTo(x - 6, bottom); ctx.lineTo(x, bottom + 7); ctx.lineTo(x + 6, bottom);
+      ctx.fill();
+      ctx.fillStyle = '#151515';
+      b.lines.forEach((l, i) => ctx.fillText(l, x, top + 5 + lh / 2 + i * lh));
+      ctx.globalAlpha = 1;
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+
   // names shortly after the round starts so everyone finds themselves
   if (mapT < 3.5) {
     ctx.globalAlpha = Math.min(1, (3.5 - mapT) * 2);
@@ -1304,6 +1426,7 @@ function sfx(name, x, arg, key = name) {
     case 'saw': noise(0.4, 3500, 6, 0.5, 'bandpass', 1500); break;
     case 'crack': noise(0.5, 600, 0.8, 1, 'lowpass', 80); thump(70, 30, 0.3, 0.6); knock(200, 0.3); break;
     case 'snap': noise(0.12, 2500, 3, 0.5, 'bandpass', 900); thump(900, 300, 0.08, 0.12, 'triangle'); break;
+    case 'chat': thump(880, 860, 0.07, 0.06, 'triangle'); sndDelay = 0.07; thump(1320, 1300, 0.09, 0.05, 'triangle'); break;
     case 'bounce': thump(140, 60, 0.18, 0.4); break;
     case 'start': noise(0.9, 200, 0.7, 0.25, 'lowpass', 2000, 0.6); thump(55, 45, 0.9, 0.25); break;
     case 'win': thump(220, 110, 0.6, 0.35); noise(0.8, 3000, 0.5, 0.15, 'highpass', 8000, 0.2); break;
