@@ -23,6 +23,8 @@ let pendingEvents = [];
 let particles = [], rings = [], flashes = [], bullets = new Map();
 let banner = null, fade = 0;
 const hitFlash = new Map();
+const hpShow = new Map();
+let hostId = 0, queuedMap = null, mapNames = [], slowUntil = 0;
 let muted = false;
 
 // ---------------------------------------------------------------- menu
@@ -48,6 +50,31 @@ $('copy').onclick = () => {
   $('copy').textContent = 'Kopiert'; setTimeout(() => $('copy').textContent = 'Link', 1200);
 };
 $('mute').onclick = () => { muted = !muted; $('mute').textContent = muted ? 'Ton aus' : 'Ton an'; };
+
+// host map picker: L (or the Maps button) queues the next map
+function toggleMapPick() {
+  if (!myId || hostId !== myId) return;
+  const el = $('mappick');
+  el.hidden = !el.hidden;
+  if (!el.hidden) renderMapPick();
+}
+function renderMapPick() {
+  const list = $('mappick-list');
+  list.innerHTML = '';
+  for (const name of [null, ...mapNames]) {
+    const b = document.createElement('button');
+    b.textContent = name || 'Zufall';
+    if ((queuedMap || null) === name) b.className = 'on';
+    b.onclick = () => { ws.send(JSON.stringify({ t: 'queue', map: name })); $('mappick').hidden = true; };
+    list.appendChild(b);
+  }
+}
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyL' && !e.repeat && myId && e.target.tagName !== 'INPUT') toggleMapPick();
+  if (e.code === 'Escape') $('mappick').hidden = true;
+});
+$('maps').onclick = toggleMapPick;
+$('mappick-close').onclick = () => { $('mappick').hidden = true; };
 
 // hidden room browser: press K five times on the start page
 let kPresses = [], roomsTimer = null;
@@ -104,7 +131,11 @@ function connect(onOpen, attempt = 0) {
     }
     if (myId) { $('menu').hidden = false; $('hud').hidden = true; touchLayer.hidden = true; $('err').textContent = 'Verbindung verloren'; myId = 0; map = null; }
   };
-  sock.onmessage = (ev) => onMessage(JSON.parse(ev.data));
+  sock.binaryType = 'arraybuffer';
+  sock.onmessage = (ev) => {
+    if (typeof ev.data === 'string') onMessage(JSON.parse(ev.data));
+    else if (map) onSnap(faightProtocol.decode(ev.data));
+  };
 }
 
 function onMessage(m) {
@@ -113,6 +144,7 @@ function onMessage(m) {
     case 'rooms': if (!$('rooms').hidden) renderRooms(m.list); break;
     case 'joined':
       myId = m.id; roomCode = m.code;
+      mapNames = m.maps || [];
       $('roomcode').textContent = m.code;
       $('menu').hidden = true; $('hud').hidden = false;
       touchLayer.hidden = !touchMode;
@@ -122,17 +154,23 @@ function onMessage(m) {
       roster.clear();
       for (const [id, name, color, score] of m.list) { roster.set(id, { name, color, score }); colorCache.set(id, color); }
       renderScores();
+      hostId = m.host;
+      queuedMap = m.queued;
+      $('maps').hidden = hostId !== myId;
+      $('queued').textContent = queuedMap ? 'Nächste Map: ' + queuedMap : '';
+      if (!$('mappick').hidden) renderMapPick();
       break;
     case 'map':
       map = m;
       map.deco = makeDeco(m);
+      map.shapeById = new Map(m.shapes.map(sh => [sh.id, sh]));
       mapSerial++;
       mapT = 0;
       snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear();
       fade = 1;
       banner = null;
       break;
-    case 's': onSnap(m); break;
+    case 'e': for (const e of m.e) pendingEvents.push({ t: m.tm / 1000, e }); break;
   }
 }
 
@@ -165,7 +203,8 @@ function onSnap(s) {
   for (const r of s.R) snap.R.set(r[0], r);
   snaps.push(snap);
   if (snaps.length > 30) snaps.shift();
-  for (const e of s.e) pendingEvents.push({ t, e });
+  // sleeping props aren't resent every time: remember their last pose
+  for (const o of s.O) { const sh = map.shapeById.get(o[0]); if (sh) { sh.x = o[1] / 100; sh.y = o[2] / 100; sh.a = o[3] / 100; } }
 }
 
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -532,8 +571,15 @@ function handleEvent(e) {
       sfx(e[1] === 'lava' ? 'sizzle' : 'saw');
       break;
     case 'crack': spawnParticles(e[1], e[2], 18, { speed: 6, life: 1, size: 0.18, color: '#4a3a2c', g: 1.2 }); kick(0, 1, 0.25); sfx('crack'); break;
-    case 'add': if (map) { map.shapes.push(e[1]); if (e[1].k === 0) levelVersion++; } break;
-    case 'rm': if (map) { if (map.shapes.some(s => s.id === e[1] && s.k === 0)) levelVersion++; map.shapes = map.shapes.filter(s => s.id !== e[1]); } break;
+    case 'add': if (map) { map.shapes.push(e[1]); map.shapeById.set(e[1].id, e[1]); if (e[1].k === 0) levelVersion++; } break;
+    case 'rm': if (map) { if (map.shapes.some(s => s.id === e[1] && s.k === 0)) levelVersion++; map.shapes = map.shapes.filter(s => s.id !== e[1]); map.shapeById.delete(e[1]); } break;
+    case 'cut': if (map) {
+      map.ropes = map.ropes.filter(r => r[0] !== e[1]);
+      spawnParticles(e[2], e[3], 8, { speed: 4, life: 0.5, size: 0.07, color: '#6b5a44', g: 1 });
+      sfx('snap');
+    } break;
+    case 'hp': hpShow.set(e[1], { hp: e[2], t: 1 }); break;
+    case 'slow': slowUntil = performance.now() + e[1] * 1000; break;
     case 'win': {
       const r = roster.get(e[1]);
       banner = { name: r ? r.name : '', color: r ? r.color : '#dddddd', draw: !r, t: 0 };
@@ -877,6 +923,7 @@ function render(nowMs) {
 
   if (!map) { drawMenuBg(time); return; }
   mapT += dt;
+  const edt = nowMs < slowUntil ? dt * 0.3 : dt;   // effects follow the server's slow motion
   const smp = sample();
   if (smp) processEvents(smp.rt);
   const A = smp && smp.a, B = smp && smp.b, k = smp ? smp.k : 0;
@@ -914,13 +961,14 @@ function render(nowMs) {
     let x = s.x, y = s.y, a = s.a;
     if (s.k !== 0 && A) {
       const oa = A.O.get(s.id), ob = B.O.get(s.id) || oa;
-      if (oa) { x = lerp(oa[1], ob[1], k) / 100; y = lerp(oa[2], ob[2], k) / 100; a = lerpA(oa[3] / 100, ob[3] / 100, k); }
+      const pa = oa || ob, pb = ob || oa;
+      if (pa) { x = lerp(pa[1], pb[1], k) / 100; y = lerp(pa[2], pb[2], k) / 100; a = lerpA(pa[3] / 100, pb[3] / 100, k); }
     }
     list.push({ s, x, y, a });
   }
   const byId = new Map(list.map(o => [o.s.id, o]));
   ctx.strokeStyle = '#1e1e1e'; ctx.lineWidth = Math.max(1.5, 0.06 * cam.s);
-  for (const [ax, ay, id, lx, ly] of map.ropes) {
+  for (const [, ax, ay, id, lx, ly] of map.ropes) {
     const p = byId.get(id);
     if (!p) continue;
     const c = Math.cos(p.a), s = Math.sin(p.a);
@@ -965,6 +1013,21 @@ function render(nowMs) {
     }
     players.sort((a, b) => a[1] - b[1] || (a[0] === myId) - (b[0] === myId));
     for (const p of players) headPos.set(p[0], drawPlayer(p, time, dt));
+    for (const p of players) {
+      const h = hpShow.get(p[0]);
+      if (!h) continue;
+      h.t -= dt;
+      if (h.t <= 0 || !p[1]) { hpShow.delete(p[0]); continue; }
+      const hp = headPos.get(p[0]);
+      const al = Math.min(1, h.t / 0.3) * 0.85;
+      const bw = 0.9 * cam.s, bh = Math.max(2, 0.07 * cam.s);
+      const x = sx(hp.hx) - bw / 2, y = sy(hp.hy + 0.55);
+      ctx.globalAlpha = al;
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(x - 1, y - 1, bw + 2, bh + 2);
+      ctx.fillStyle = h.hp > 35 ? '#f2f2f2' : '#ff6b5e';
+      ctx.fillRect(x, y, bw * Math.max(0, h.hp) / 100, bh);
+      ctx.globalAlpha = 1;
+    }
   }
 
   for (const o of list) if (o.s.hz === 'lava') drawLava(o.s, o.x, o.y, time);
@@ -972,7 +1035,7 @@ function render(nowMs) {
   // bullets (simulated locally from spawn events)
   ctx.globalCompositeOperation = 'lighter';
   for (const [id, b] of bullets) {
-    b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    b.x += b.vx * edt; b.y += b.vy * edt; b.life -= edt;
     if (b.life <= 0) { bullets.delete(id); continue; }
     const len = b.w === 'sniper' ? 0.06 : 0.035;
     ctx.strokeStyle = b.w === 'sniper' ? 'rgba(255,255,240,0.95)' : 'rgba(255,240,190,0.9)';
@@ -981,7 +1044,7 @@ function render(nowMs) {
     ctx.beginPath(); ctx.moveTo(sx(b.x - b.vx * len), sy(b.y - b.vy * len)); ctx.lineTo(sx(b.x), sy(b.y)); ctx.stroke();
   }
   for (const f of flashes) {
-    f.life -= dt;
+    f.life -= edt;
     const al = Math.max(0, f.life / f.max);
     if (f.boom) {
       const r = f.size * cam.s * (1.2 - al * 0.5);
@@ -1001,7 +1064,7 @@ function render(nowMs) {
   ctx.globalCompositeOperation = 'source-over';
 
   for (const r of rings) {
-    r.life -= dt; r.r += r.grow * dt;
+    r.life -= edt; r.r += r.grow * edt;
     ctx.strokeStyle = `rgba(255,255,255,${Math.max(0, r.life / r.max) * 0.8})`;
     ctx.lineWidth = r.w * cam.s * Math.max(0.1, r.life / r.max);
     ctx.beginPath(); ctx.arc(sx(r.x), sy(r.y), r.r * cam.s, 0, 7); ctx.stroke();
@@ -1009,10 +1072,10 @@ function render(nowMs) {
   rings = rings.filter(r => r.life > 0);
 
   for (const p of particles) {
-    p.life -= dt;
-    p.vy -= 22 * p.g * dt;
-    if (p.drag) { p.vx *= Math.max(0, 1 - p.drag * dt); p.vy *= Math.max(0, 1 - p.drag * dt); }
-    p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+    p.life -= edt;
+    p.vy -= 22 * p.g * edt;
+    if (p.drag) { p.vx *= Math.max(0, 1 - p.drag * edt); p.vy *= Math.max(0, 1 - p.drag * edt); }
+    p.x += p.vx * edt; p.y += p.vy * edt; p.rot += p.vr * edt;
     const al = Math.max(0, Math.min(1, p.life / p.max * 2));
     ctx.globalAlpha = al;
     ctx.fillStyle = p.color;
@@ -1052,7 +1115,7 @@ function render(nowMs) {
   // round winner
   if (banner) {
     banner.t += dt;
-    const inT = Math.min(1, banner.t * 5), out = banner.t > 2.2 ? Math.max(0, 1 - (banner.t - 2.2) * 5) : 1;
+    const inT = Math.min(1, banner.t * 5), out = banner.t > 3.1 ? Math.max(0, 1 - (banner.t - 3.1) * 5) : 1;
     ctx.globalAlpha = out;
     const bandH = Math.min(150, H * 0.2) * (1 - Math.pow(1 - inT, 3));
     ctx.fillStyle = 'rgba(10,10,10,0.8)';
@@ -1071,7 +1134,7 @@ function render(nowMs) {
       ctx.textBaseline = 'alphabetic';
     }
     ctx.globalAlpha = 1;
-    if (banner.t > 2.6) banner = null;
+    if (banner.t > 3.5) banner = null;
   }
 
   if (fade > 0) {
@@ -1084,15 +1147,22 @@ function render(nowMs) {
   // crosshair + ammo
   if (myId) {
     const me = players.find(p => p[0] === myId);
-    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-    ctx.beginPath(); ctx.arc(mouseX, mouseY, 7, 0, 7); ctx.stroke();
-    ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff';
-    ctx.beginPath(); ctx.arc(mouseX, mouseY, 7, 0, 7); ctx.stroke();
-    ctx.fillStyle = '#fff'; ctx.fillRect(mouseX - 1, mouseY - 1, 2, 2);
+    const cross = () => {
+      ctx.beginPath(); ctx.arc(mouseX, mouseY, 11, 0, 7);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        ctx.moveTo(mouseX + dx * 6, mouseY + dy * 6); ctx.lineTo(mouseX + dx * 17, mouseY + dy * 17);
+      }
+      ctx.stroke();
+    };
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 5.5; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; cross();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = '#ffffff'; cross();
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.beginPath(); ctx.arc(mouseX, mouseY, 3, 0, 7); ctx.fill();
+    ctx.fillStyle = colorOf(myId); ctx.beginPath(); ctx.arc(mouseX, mouseY, 2, 0, 7); ctx.fill();
     if (me && me[1] && me[3] >= 0) {
-      ctx.font = '700 12px Arial, sans-serif'; ctx.textAlign = 'left';
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(me[4], mouseX + 13, mouseY + 17);
-      ctx.fillStyle = '#fff'; ctx.fillText(me[4], mouseX + 12, mouseY + 16);
+      ctx.font = '800 13px Arial, sans-serif'; ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText(me[4], mouseX + 17, mouseY + 23);
+      ctx.fillStyle = '#fff'; ctx.fillText(me[4], mouseX + 16, mouseY + 22);
     }
   }
 }
@@ -1168,6 +1238,7 @@ function sfx(name) {
     case 'sizzle': noise(1, 5000, 0.5, 0.5, 'highpass', 1500, 0.05); break;
     case 'saw': noise(0.4, 3500, 6, 0.5, 'bandpass', 1500); break;
     case 'crack': noise(0.5, 600, 0.8, 1, 'lowpass', 80); thump(70, 30, 0.3, 0.6); break;
+    case 'snap': noise(0.12, 2500, 3, 0.5, 'bandpass', 900); break;
     case 'win': thump(220, 110, 0.6, 0.35); noise(0.8, 3000, 0.5, 0.15, 'highpass', 8000, 0.2); break;
   }
 }

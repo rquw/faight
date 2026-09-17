@@ -253,7 +253,8 @@ class Character {
     const move = frozen || stunned ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
 
     // ---- drag & gravity like SFTG: fallen bodies go limp and drop with plain world gravity
-    const targetDrag = stunned ? 0 : DRAG;
+    this.launchT = Math.max(0, (this.launchT || 0) - dt);
+    const targetDrag = stunned ? 0 : this.launchT > 0 ? 0.6 : DRAG;
     this.drag += (targetDrag - this.drag) * Math.min(1, dt * (stunned ? 12 : 5));
     const gs = stunned ? 0.75 : GRAVITY / WORLD_G;
     for (const b of this.bodies) { b.setLinearDamping(this.drag); b.setGravityScale(gs); }
@@ -392,6 +393,15 @@ class Character {
     }
   }
 
+  // lava: fly really high (low drag and no air-gravity build-up for a moment)
+  launch(vy) {
+    this.launchT = 0.7;
+    this.drag = 0.6;
+    this.airGravity = -0.6;
+    this.sinceJumped = 0;
+    for (const b of this.bodies) { const v = b.getLinearVelocity(); b.setLinearVelocity(V(v.x * 0.5, vy)); }
+  }
+
   // knock the whole body: core takes the full velocity change, limbs a bit less so it flops.
   // SFTG "weakness": the more damage taken, the further you fly
   kick(dvx, dvy, weak = true) {
@@ -405,6 +415,7 @@ class Character {
   damage(amount, by, stun = 0) {
     if (!this.alive || this.game.freeze > 0 || this.game.time < 1.3) return;   // SFTG: 0.5 s spawn protection
     this.hp -= amount;
+    this.game.event(['hp', this.player.id, Math.max(0, Math.round(this.hp))]);
     if (by && by !== this) this.lastHitBy = by;
     this.stun = Math.max(this.stun, stun);
     if (this.hp <= 0) this.die(by);

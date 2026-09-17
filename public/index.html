@@ -41,12 +41,20 @@
   </div>
 </div>
 
+<div id="mappick" hidden>
+  <div class="panel">
+    <div class="panel-head"><b>Nächste Map</b><button id="mappick-close">Schließen</button></div>
+    <div id="mappick-list"></div>
+  </div>
+</div>
+
 <div id="hud" hidden>
-  <div id="room">RAUM <b id="roomcode"></b><button id="copy" title="Link kopieren">Link</button></div>
+  <div id="room">RAUM <b id="roomcode"></b><button id="copy" title="Link kopieren">Link</button><button id="maps" title="Nächste Map wählen (L)" hidden>Maps</button><div id="queued"></div></div>
   <div id="scores"></div>
   <button id="mute" title="Ton an/aus">Ton an</button>
 </div>
 
+<script src="protocol.js"></script>
 <script src="client.js"></script>
 </body>
 </html>

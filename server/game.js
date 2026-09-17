@@ -3,12 +3,12 @@ const C = require('./constants');
 const MAPS = require('./maps');
 const { Character } = require('./character');
 const { Bot } = require('./bot');
+const protocol = require('../public/protocol');
 const V = pl.Vec2;
 
 const DT = 1 / 60;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r2 = (n) => Math.round(n * 100) / 100;
-const i100 = (n) => Math.round(n * 100);
 
 class Game {
   constructor(code) {
@@ -26,6 +26,8 @@ class Game {
     this.lastMap = -1;
     this.state = 'wait';
     this.emptySince = 0;
+    this.hostId = 0;
+    this.queuedMap = null;
   }
 
   // ---------- players
@@ -39,7 +41,8 @@ class Game {
       input: { l: 0, r: 0, d: 0, j: 0, s: 0, th: 0, ax: 0, ay: 0 }, char: null,
     };
     this.players.set(p.id, p);
-    this.send(p, { t: 'joined', id: p.id, code: this.code });
+    if (!this.hostId) this.hostId = p.id;
+    this.send(p, { t: 'joined', id: p.id, code: this.code, maps: MAPS.map(m => m.name) });
     this.broadcastRoster();
     if (this.state === 'wait') this.startRound();
     else {
@@ -73,6 +76,10 @@ class Game {
   removePlayer(p) {
     this.players.delete(p.id);
     if (p.char && p.char.alive) p.char.die(null);
+    if (this.hostId === p.id) {
+      const next = [...this.players.values()].find(o => !o.bot);
+      this.hostId = next ? next.id : 0;
+    }
     if (!p.bot && ![...this.players.values()].some(o => !o.bot)) {
       for (const b of [...this.players.values()]) { this.players.delete(b.id); if (b.char && b.char.alive) b.char.die(null); }
     }
@@ -101,10 +108,20 @@ class Game {
   }
 
   broadcastRoster() {
-    this.broadcast({ t: 'roster', list: [...this.players.values()].map(p => [p.id, p.name, p.color, p.score]) });
+    this.broadcast({
+      t: 'roster', list: [...this.players.values()].map(p => [p.id, p.name, p.color, p.score]),
+      host: this.hostId, queued: this.queuedMap == null ? null : MAPS[this.queuedMap].name,
+    });
   }
 
   event(e) { this.events.push(e); }
+
+  queueMap(p, name) {
+    if (p.id !== this.hostId) return;
+    const i = MAPS.findIndex(m => m.name === name);
+    this.queuedMap = i >= 0 ? i : null;
+    this.broadcastRoster();
+  }
 
   // ---------- rounds / maps
   startRound() {
@@ -115,6 +132,7 @@ class Game {
     this.H = Math.round(this.W * 0.56 * 10) / 10;
     let idx;
     do idx = Math.floor(Math.random() * MAPS.length); while (MAPS.length > 1 && idx === this.lastMap);
+    if (this.queuedMap != null) { idx = this.queuedMap; this.queuedMap = null; }
     if (this.forceMap != null) idx = this.forceMap;
     this.lastMap = idx;
     const def = MAPS[idx];
@@ -122,11 +140,12 @@ class Game {
 
     this.world = new pl.World({ gravity: V(0, def.gravity || -28) });
     this.props = new Map(); this.items = new Map(); this.projs = new Map(); this.bullets = [];
-    this.chars = []; this.ropes = []; this.hazards = []; this.tickers = []; this.breaks = [];
+    this.chars = []; this.ropes = []; this.links = []; this.debris = []; this.hazards = []; this.tickers = []; this.breaks = [];
     this.nextObj = 1;
     this.time = 0; this.freeze = 0.8; this.ending = null;
     this.dropTimer = 2;
     this.pending = [];
+    this.pendingBreak = [];
     this.world.on('begin-contact', (c) => this.onContact(c));
 
     const spawns = [];
@@ -157,16 +176,16 @@ class Game {
       floor(x0, x1, y, th = 0.7, o = {}) { return m.block(x0, y - th, x1, y, o); },
       wall(x, y0, y1, th = 0.6, o = {}) { return m.block(x - th / 2, y0, x + th / 2, y1, o); },
       crate(x, y, s = 1, o = {}) {
-        return game.addProp('b', x, y + s / 2, { w: s, h: s }, Object.assign({ dynamic: true, density: 1.1, crate: true }, o));
+        return game.addProp('b', x, y + s / 2, { w: s, h: s }, Object.assign({ dynamic: true, density: 1.1, crate: true, hp: 45 }, o));
       },
       crates(x, y, cols, rows, s = 1) {
         for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) m.crate(x + (c - (cols - 1) / 2) * s * 1.01, y + r * s * 1.01, s);
       },
-      merlons(x0, x1, y, w = 0.8, h = 1.1) {
+      merlons(x0, x1, y, w = 0.8, h = 1.1, o = { hp: 80 }) {
         const cnt = Math.max(2, Math.floor((x1 - x0) / (w * 2.2)));
         for (let i = 0; i < cnt; i++) {
           const x = x0 + w / 2 + (i / (cnt - 1)) * (x1 - x0 - w);
-          m.block(x - w / 2, y, x + w / 2, y + h);
+          m.block(x - w / 2, y, x + w / 2, y + h, o);
         }
       },
       spawn(x, y) { spawns.push({ x, y }); },
@@ -175,7 +194,21 @@ class Game {
         for (let i = 0; i < cnt; i++) spawns.push({ x: x0 + ((i + 0.5) / cnt) * (x1 - x0), y });
       },
       tick(fn) { game.tickers.push(fn); },
-      rope(x, y, body, lx, ly) { game.ropes.push([r2(x), r2(y), body.getUserData().id, lx, ly]); },
+      // a real (slack-capable) rope from a fixed point to a body; can be shot through
+      rope(x, y, body, lx, ly, slack = 1) {
+        const anchor = game.world.createBody({ type: 'static', position: V(x, y) });
+        const len = V.distance(V(x, y), body.getWorldPoint(V(lx, ly))) * slack;
+        const joint = game.world.createJoint(pl.RopeJoint({ maxLength: len, localAnchorA: V(0, 0), localAnchorB: V(lx, ly) }, anchor, body));
+        const rope = { id: game.nextObj++, joint, ax: x, ay: y, body, lx, ly };
+        game.ropes.push(rope);
+        return rope;
+      },
+      // a hinge between two bodies that explosions can blow apart
+      link(a, b, x, y) {
+        const joint = game.world.createJoint(pl.RevoluteJoint({}, a, b, V(x, y)));
+        game.links.push({ joint, a, b, lx: a.getLocalPoint(V(x, y)) });
+        return joint;
+      },
     };
     return m;
   }
@@ -199,7 +232,7 @@ class Game {
     if (o.bounce) desc.bo = 1;
     if (o.ice) desc.ice = 1;
     if (o.crate) desc.cr = 1;
-    body.setUserData({ kind: 'prop', id, desc });
+    body.setUserData({ kind: 'prop', id, desc, hp: o.hp || 0, size });
     this.props.set(id, body);
     if (o.hazard) this.hazards.push(fixture);
     if (o.breakAt) this.breaks.push({ body, at: o.breakAt });
@@ -209,10 +242,56 @@ class Game {
 
   removeProp(body) {
     const u = body.getUserData();
+    if (!this.props.has(u.id)) return;
     this.props.delete(u.id);
     this.hazards = this.hazards.filter(f => f.getBody() !== body);
+    for (const r of this.ropes.filter(r => r.body === body)) this.cutRope(r, null, true);
+    this.links = this.links.filter(l => l.a !== body && l.b !== body);
     this.world.destroyBody(body);
     this.event(['rm', u.id]);
+  }
+
+  cutRope(rope, at, bodyGone) {
+    const i = this.ropes.indexOf(rope);
+    if (i < 0) return;
+    this.ropes.splice(i, 1);
+    if (!bodyGone) this.world.destroyJoint(rope.joint);
+    const p = at || rope.body.getWorldPoint(V(rope.lx, rope.ly));
+    this.event(['cut', rope.id, r2(p.x), r2(p.y)]);
+  }
+
+  ropeEnds(r) {
+    const b = r.body.getWorldPoint(V(r.lx, r.ly));
+    return [r.ax, r.ay, b.x, b.y];
+  }
+
+  // damage a breakable piece of the level; at 0 hp it shatters into debris
+  damageProp(body, amount, dx = 0, dy = 0) {
+    const u = body.getUserData();
+    if (!u || u.kind !== 'prop' || !(u.hp > 0) || !this.props.has(u.id)) return;
+    u.hp -= amount;
+    if (u.hp <= 0) this.pendingBreak.push({ body, dx, dy });
+  }
+
+  shatter(body, dx, dy) {
+    const u = body.getUserData();
+    if (!this.props.has(u.id) || u.desc.s !== 'b') return;
+    const pos = body.getPosition(), ang = body.getAngle(), vel = body.getLinearVelocity();
+    const { w, h } = u.size;
+    const color = u.desc.c || (u.desc.cr ? '#3a3029' : '#26272a');
+    this.removeProp(body);
+    this.event(['crack', r2(pos.x), r2(pos.y)]);
+    const nx = Math.max(1, Math.min(4, Math.round(w / 0.9))), ny = Math.max(1, Math.min(4, Math.round(h / 0.9)));
+    const pw = w / nx, ph = h / ny, c = Math.cos(ang), sn = Math.sin(ang);
+    for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+      const lx = -w / 2 + pw * (i + 0.5), ly = -h / 2 + ph * (j + 0.5);
+      const piece = this.addProp('b', pos.x + lx * c - ly * sn, pos.y + lx * sn + ly * c,
+        { w: pw * 0.92, h: ph * 0.92 }, { dynamic: true, density: 1.2, color, angle: ang });
+      piece.setLinearVelocity(V(vel.x + dx * 5 + (Math.random() - 0.5) * 4, vel.y + dy * 5 + Math.random() * 3));
+      piece.setAngularVelocity((Math.random() - 0.5) * 8);
+      this.debris.push({ body: piece, until: this.time + 6 + Math.random() * 4 });
+    }
+    while (this.debris.length > 140) this.removeProp(this.debris.shift().body);
   }
 
   mapMessage() {
@@ -223,7 +302,8 @@ class Game {
     }
     return {
       t: 'map', name: this.mapDef.name, sky: this.mapDef.sky, dark: !!this.mapDef.dark,
-      W: this.W, H: this.H, shapes, ropes: this.ropes, playing: this.chars.map(c => c.player.id),
+      W: this.W, H: this.H, shapes, playing: this.chars.map(c => c.player.id),
+      ropes: this.ropes.map(r => [r.id, r2(r.ax), r2(r.ay), r.body.getUserData().id, r.lx, r.ly]),
     };
   }
 
@@ -270,6 +350,8 @@ class Game {
     if (this.state !== 'play' || !this.world) return;
     this.tickN++;
     this.time += DT;
+    this.slow = Math.max(0, (this.slow || 0) - DT);
+    const dt = this.dt = this.slow > 0 ? DT * 0.3 : DT;
     this.freeze = Math.max(0, this.freeze - DT);
 
     for (const fn of this.tickers) fn(this.time, DT, this);
@@ -284,7 +366,7 @@ class Game {
     for (const p of this.players.values()) if (p.bot) this.input(p, p.bot.think());
     for (const c of this.chars) {
       if (!c.alive) continue;
-      c.update(DT, c.player.input);
+      c.update(dt, c.player.input);
       if (this.freeze === 0 && c.stun <= 0) this.combat(c, c.player.input);
     }
 
@@ -292,9 +374,12 @@ class Game {
     this.updateProjectiles();
     this.updateItems();
 
-    this.world.step(DT, 8, 3);
+    this.world.step(dt, 8, 3);
     const pend = this.pending; this.pending = [];
     for (const fn of pend) fn();
+    const brk = this.pendingBreak; this.pendingBreak = [];
+    for (const b of brk) this.shatter(b.body, b.dx, b.dy);
+    while (this.debris.length && this.debris[0].until < this.time) this.removeProp(this.debris.shift().body);
 
     this.checkHazards();
     this.cleanup();
@@ -318,7 +403,7 @@ class Game {
         if (this.time - (c.lastLava || -1) >= 0.3) {
           c.lastLava = this.time;
           this.event(['hz', hz, r2(p.x), r2(p.y)]);
-          c.kick(0, 22, false);
+          c.launch(27);
           c.damage(35, c.lastHitBy);
         }
       } else if (hz) {
@@ -344,24 +429,22 @@ class Game {
   roundLogic() {
     const alive = this.chars.filter(c => c.alive);
     if (!this.ending) {
-      if ((this.participants >= 2 && alive.length <= 1) || alive.length === 0) this.ending = { t: 1.8, winner: alive[0] || null };
+      if ((this.participants >= 2 && alive.length <= 1) || alive.length === 0) {
+        // the moment the last opponent dies: winner right away + slow motion
+        const w = alive[0];
+        if (w && this.players.has(w.player.id)) {
+          w.player.score++;
+          this.event(['win', w.player.id]);
+        } else this.event(['win', 0]);
+        this.broadcastRoster();
+        this.slow = 1.4;
+        this.event(['slow', 1.4]);
+        this.ending = { t: 3.6 };
+      }
       return;
     }
     this.ending.t -= DT;
-    if (this.ending.t > 0) return;
-    if (!this.ending.announced) {
-      this.ending.announced = true;
-      if (this.ending.silent) return this.startRound();
-      const w = this.ending.winner;
-      if (w && w.alive && this.players.has(w.player.id)) {
-        w.player.score++;
-        this.event(['win', w.player.id]);
-      } else this.event(['win', 0]);
-      this.broadcastRoster();
-      this.ending.t = 2.2;
-      return;
-    }
-    this.startRound();
+    if (this.ending.t <= 0) this.startRound();
   }
 
   // ---------- combat
@@ -378,7 +461,7 @@ class Game {
       return;
     }
     const held = input.s;
-    if (w.spinup) c.weapon.spin = held ? Math.min(w.spinup, c.weapon.spin + DT) : Math.max(0, c.weapon.spin - DT * 2);
+    if (w.spinup) c.weapon.spin = held ? Math.min(w.spinup, c.weapon.spin + this.dt) : Math.max(0, c.weapon.spin - this.dt * 2);
     if (!(w.auto ? held : queued) || c.cooldown > 0) return;
     if (w.spinup && c.weapon.spin < w.spinup) return;
     c.cooldown = w.cd;
@@ -433,7 +516,7 @@ class Game {
   updateBullets() {
     const keep = [];
     for (const b of this.bullets) {
-      const nx = b.x + b.vx * DT, ny = b.y + b.vy * DT;
+      const nx = b.x + b.vx * this.dt, ny = b.y + b.vy * this.dt;
       const gunHit = this.chars.find(c => c.alive && c.weapon && c !== b.owner && this.hitsGun(c, b.x, b.y, nx, ny));
       if (gunHit) {
         const h = gunHit.handPos(0);
@@ -449,8 +532,14 @@ class Game {
         best = { f, point: V(point.x, point.y), frac };
         return frac;
       });
+      const hitFrac = best ? best.frac : 1;
+      for (const r of [...this.ropes]) {
+        const [x1, y1, x2, y2] = this.ropeEnds(r);
+        const t = segHit(b.x, b.y, nx, ny, x1, y1, x2, y2);
+        if (t != null && t <= hitFrac) this.cutRope(r, V(b.x + (nx - b.x) * t, b.y + (ny - b.y) * t));
+      }
       if (!best) {
-        b.x = nx; b.y = ny; b.life -= DT;
+        b.x = nx; b.y = ny; b.life -= this.dt;
         if (b.life > 0 && ny > -20) keep.push(b);
         continue;
       }
@@ -464,8 +553,9 @@ class Game {
         if (ch.alive) ch.damage(b.w.dmg * (u.part === 'head' ? 1.5 : 1), b.owner);
         body.applyLinearImpulse(V(dx * kb * 0.3, dy * kb * 0.3), best.point, true);
         ch.kick(dx * kb, dy * kb + kb * 0.2);
-      } else if (body.getType() === 'dynamic') {
-        body.applyLinearImpulse(V(dx * kb * 0.5, dy * kb * 0.5), best.point, true);
+      } else {
+        if (body.getType() === 'dynamic') body.applyLinearImpulse(V(dx * kb * 0.5, dy * kb * 0.5), best.point, true);
+        this.damageProp(body, b.w.dmg, dx, dy);
       }
       this.event(['bh', b.id, r2(best.point.x), r2(best.point.y), victim]);
     }
@@ -490,13 +580,14 @@ class Game {
     });
     if (hitChars.size) c.kick(dir.x * 6, dir.y * 6, false);   // attacker lunges into the hit
     for (const ch of hitChars) {
-      if (ch.alive) ch.damage(22.5, c);
+      if (ch.alive) ch.damage(12, c);
       ch.kick(dir.x * 20, dir.y * 20 + 4);
       ch.airGravity = 0;                               // victims float for a moment
       ch.sinceGrounded = 0;
       this.event(['ph', r2(center.x), r2(center.y), ch.player.id, Math.round(c.aim * 100)]);
     }
     for (const b of hitBodies) {
+      this.damageProp(b, 12, dir.x, dir.y);
       const m = Math.min(b.getMass(), 6);
       b.applyLinearImpulse(V(dir.x * 7 * m, dir.y * 7 * m + 2), b.getWorldCenter(), true);
     }
@@ -521,7 +612,7 @@ class Game {
 
   updateProjectiles() {
     for (const p of this.projs.values()) {
-      p.life -= DT;
+      p.life -= this.dt;
       if (p.type === 'rpg') { const v = p.body.getLinearVelocity(); p.body.setAngle(Math.atan2(v.y, v.x)); }
       if (p.life <= 0 || p.body.getPosition().y < -15) this.detonate(p);
     }
@@ -538,9 +629,23 @@ class Game {
 
   explode(x, y, R, dmg, owner) {
     this.event(['boom', r2(x), r2(y), R]);
+    for (const r of [...this.ropes]) {
+      const [x1, y1, x2, y2] = this.ropeEnds(r);
+      if (distToSeg(x, y, x1, y1, x2, y2) < R * 0.7) this.cutRope(r, V(x, y));
+    }
+    for (const l of [...this.links]) {
+      const p = l.a.getWorldPoint(l.lx);
+      if (Math.hypot(p.x - x, p.y - y) < R * 0.6) { this.world.destroyJoint(l.joint); this.links.splice(this.links.indexOf(l), 1); }
+    }
     const seen = new Set();
     this.world.queryAABB(pl.AABB(V(x - R, y - R), V(x + R, y + R)), (f) => {
-      if (f.getBody().getType() === 'dynamic') seen.add(f.getBody());
+      const b = f.getBody(), u = b.getUserData() || {};
+      if (b.getType() === 'dynamic') seen.add(b);
+      else if (u.hp > 0) {
+        const c = b.getPosition(), ext = Math.max(u.size.w || 0, u.size.h || 0) / 2;
+        const d = Math.max(0, Math.hypot(c.x - x, c.y - y) - ext);
+        if (d < R) this.damageProp(b, dmg * 2.5 * (1 - d / R), Math.sign(c.x - x), Math.sign(c.y - y));
+      }
       return true;
     });
     const charsHit = new Map();
@@ -557,6 +662,7 @@ class Game {
       b.setLinearVelocity(V(v.x + dx * push, v.y + dy * push + 5 * f));
       b.setAngularVelocity(b.getAngularVelocity() + (Math.random() - 0.5) * 16 * f);
       if (u.kind === 'part') charsHit.set(u.char, Math.max(charsHit.get(u.char) || 0, f));
+      else if (u.kind === 'prop') this.damageProp(b, dmg * 2.5 * f, dx, dy);
     }
     for (const [ch, f] of charsHit) {
       if (!ch.alive) continue;
@@ -613,10 +719,10 @@ class Game {
       }
     }
     for (const it of [...this.items.values()]) {
-      it.ttl -= DT;
-      it.noPick = Math.max(0, it.noPick - DT);
+      it.ttl -= this.dt;
+      it.noPick = Math.max(0, it.noPick - this.dt);
       if (it.harm > 0) {
-        it.harm -= DT;
+        it.harm -= this.dt;
         if (it.harm <= 0) for (let f = it.body.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: 0, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD | C.CAT_PROP });
       }
       const p = it.body.getPosition();
@@ -644,34 +750,56 @@ class Game {
 
   // ---------- snapshot
   sendSnapshot() {
-    const P = [];
+    const players = [];
     for (const c of this.chars) {
       if (c.gone) continue;
-      const row = [c.player.id, c.alive ? 1 : 0, Math.round(c.aim * 100),
-        c.weapon ? C.ORDER.indexOf(c.weapon.type) : -1, c.weapon ? c.weapon.ammo : 0, c.stun > 0 ? 1 : 0];
-      for (const b of c.bodies) { const q = b.getPosition(); row.push(i100(q.x), i100(q.y), i100(b.getAngle())); }
-      P.push(row);
+      const hp = c.hip.getPosition();
+      players.push({
+        id: c.player.id, alive: c.alive, stun: c.stun > 0, aim: c.aim,
+        wIdx: c.weapon ? C.ORDER.indexOf(c.weapon.type) : -1, ammo: c.weapon ? c.weapon.ammo : 0,
+        hipX: hp.x, hipY: hp.y, angles: c.bodies.map(b => b.getAngle()),
+      });
     }
-    const O = [];
+    const props = [];
+    const full = this.tickN % 60 === 0;
     for (const [id, b] of this.props) {
-      if (b.getType() === 'static') continue;
+      const t = b.getType();
+      if (t === 'static' || (t === 'dynamic' && !b.isAwake() && !full)) continue;
       const q = b.getPosition();
-      O.push([id, i100(q.x), i100(q.y), i100(b.getAngle())]);
+      props.push([id, q.x, q.y, b.getAngle()]);
     }
-    const I = [];
+    const items = [];
     for (const it of this.items.values()) {
       const q = it.body.getPosition();
-      I.push([it.id, C.ORDER.indexOf(it.type), i100(q.x), i100(q.y), i100(it.body.getAngle()), it.ammo > 0 ? (it.ttl < 4 ? 2 : 1) : 0]);
+      items.push([it.id, C.ORDER.indexOf(it.type), q.x, q.y, it.body.getAngle(), it.ammo > 0 ? (it.ttl < 4 ? 2 : 1) : 0]);
     }
-    const R = [];
+    const projs = [];
     for (const pr of this.projs.values()) {
       const q = pr.body.getPosition();
-      R.push([pr.id, pr.type === 'rpg' ? 0 : 1, i100(q.x), i100(q.y), i100(pr.body.getAngle())]);
+      projs.push([pr.id, pr.type === 'rpg' ? 0 : 1, q.x, q.y, pr.body.getAngle()]);
     }
-    const msg = { t: 's', tm: Math.round(this.time * 1000), P, O, I, R, e: this.events };
-    this.events = [];
-    this.broadcast(msg);
+    const tm = Math.round(this.time * 1000);
+    if (this.events.length) { this.broadcast({ t: 'e', tm, e: this.events }); this.events = []; }
+    const buf = Buffer.from(protocol.encode(tm, players, props, items, projs));
+    for (const p of this.players.values()) if (p.ws.readyState === 1) p.ws.send(buf, { binary: true, compress: false });
   }
+
+}
+
+// where along a->b (0..1) the segment crosses c->d, or null
+function segHit(ax, ay, bx, by, cx, cy, dx, dy) {
+  const rx = bx - ax, ry = by - ay, sx = dx - cx, sy = dy - cy;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const t = ((cx - ax) * sy - (cy - ay) * sx) / den;
+  const u = ((cx - ax) * ry - (cy - ay) * rx) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+}
+
+function distToSeg(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+  return Math.hypot(ax + dx * t - px, ay + dy * t - py);
 }
 
 function pickWeapon() {

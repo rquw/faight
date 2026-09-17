@@ -10,17 +10,17 @@ const maps = [
     build(m) {
       const { X } = m;
       m.floor(X(0.05), X(0.95), 4, 4);
-      m.wall(X(0.2), 4, 5.5, 0.5); m.wall(X(0.8), 4, 5.5, 0.5);
+      m.wall(X(0.2), 4, 5.5, 0.5, { hp: 120 }); m.wall(X(0.8), 4, 5.5, 0.5, { hp: 120 });
       // two-storey hall with windows
       m.floor(X(0.36), X(0.64), 10, 0.6);
-      m.wall(X(0.36) + 0.3, 4, 5.4); m.wall(X(0.36) + 0.3, 7.8, 9.4);
-      m.wall(X(0.64) - 0.3, 4, 5.4); m.wall(X(0.64) - 0.3, 7.8, 9.4);
-      m.floor(X(0.42), X(0.58), 15.5, 0.6);
-      m.wall(X(0.42) + 0.25, 15.5, 16.8, 0.5); m.wall(X(0.58) - 0.25, 15.5, 16.8, 0.5);
+      m.wall(X(0.36) + 0.3, 4, 5.4, 0.6, { hp: 150 }); m.wall(X(0.36) + 0.3, 7.8, 9.4, 0.6, { hp: 150 });
+      m.wall(X(0.64) - 0.3, 4, 5.4, 0.6, { hp: 150 }); m.wall(X(0.64) - 0.3, 7.8, 9.4, 0.6, { hp: 150 });
+      m.floor(X(0.42), X(0.58), 15.5, 0.6, { hp: 260 });
+      m.wall(X(0.42) + 0.25, 15.5, 16.8, 0.5, { hp: 90 }); m.wall(X(0.58) - 0.25, 15.5, 16.8, 0.5, { hp: 90 });
       // balconies
-      m.floor(X(0.06), X(0.25), 11, 0.6); m.wall(X(0.25) - 0.25, 11, 12.4, 0.5);
-      m.floor(X(0.75), X(0.94), 11, 0.6); m.wall(X(0.75) + 0.25, 11, 12.4, 0.5);
-      m.floor(X(0.12), X(0.2), 17, 0.5); m.floor(X(0.8), X(0.88), 17, 0.5);
+      m.floor(X(0.06), X(0.25), 11, 0.6, { hp: 300 }); m.wall(X(0.25) - 0.25, 11, 12.4, 0.5, { hp: 90 });
+      m.floor(X(0.75), X(0.94), 11, 0.6, { hp: 300 }); m.wall(X(0.75) + 0.25, 11, 12.4, 0.5, { hp: 90 });
+      m.floor(X(0.12), X(0.2), 17, 0.5, { hp: 150 }); m.floor(X(0.8), X(0.88), 17, 0.5, { hp: 150 });
       m.crates(X(0.5), 4, 2, 2, 1.1);
       m.crates(X(0.12), 11, 1, 2, 1);
       m.crates(X(0.88), 11, 1, 2, 1);
@@ -43,7 +43,7 @@ const maps = [
       }
       // shelves
       for (const [a, b] of [[0.05, 0.25], [0.75, 0.95]]) {
-        m.floor(X(a), X(b), 9.5, 0.5); m.floor(X(a), X(b), 15, 0.5);
+        m.floor(X(a), X(b), 9.5, 0.5, { hp: 260 }); m.floor(X(a), X(b), 15, 0.5, { hp: 200 });
         m.crates(X((a + b) / 2) - 1.5, 9.5, 2, 2, 1); m.crates(X((a + b) / 2) + 2.5, 15, 1, 1, 1);
         m.spawnRow(X(a), X(b), 9.5);
       }
@@ -64,7 +64,7 @@ const maps = [
         const t0 = side ? X(0.89) : X(0.03), t1 = side ? X(0.97) : X(0.11);
         castles.push(m.block(x0, 0, x1, 9));
         m.merlons(side ? x0 + 0.5 : t1 + 0.8, side ? t0 - 0.8 : x1 - 0.5, 9);
-        m.block(t0, 9, t1, 15);
+        m.block(t0, 9, t1, 15, { hp: 400 });
         m.merlons(t0, t1, 15);
         m.spawnRow(side ? x0 + 1 : t1 + 1, side ? t0 - 1 : x1 - 1, 9);
       }
@@ -115,8 +115,6 @@ const maps = [
       const arm = m.floor(X(0.36), X(0.64), H - 2.2, 0.5);
       const len = 8;
       const plat = m.rect(W / 2, H - 2.2 - len, 5, 0.45, { dynamic: true, density: 3, angularDamping: 2, color: '#3a3a3a' });
-      m.world.createJoint(pl.DistanceJoint({}, arm, plat, V(W / 2 - 1, H - 2.7), V(W / 2 - 2.2, H - 2.2 - len)));
-      m.world.createJoint(pl.DistanceJoint({}, arm, plat, V(W / 2 + 1, H - 2.7), V(W / 2 + 2.2, H - 2.2 - len)));
       m.rope(W / 2 - 1, H - 2.7, plat, -2.2, 0.22); m.rope(W / 2 + 1, H - 2.7, plat, 2.2, 0.22);
       plat.setLinearVelocity(V(5, 0));
       for (const x of [X(0.3), X(0.7)]) for (let i = 0; i < 3; i++) m.rect(x, 3.2 + i * 0.37, 3.4, 0.35, { dynamic: true, density: 2, color: '#6d5433' });
@@ -153,13 +151,13 @@ const maps = [
         m.block(X(a), -2, X(c), top);
         m.spawnRow(X(a) + 0.5, X(c) - 0.5, top);
       }
-      m.block(X(0.08), 7, X(0.08) + 1.4, 8.1); m.block(X(0.92) - 1.4, 7, X(0.92), 8.1);
-      m.wall(X(0.34), 10.5, 12.6, 0.6); m.wall(X(0.66), 10.5, 12.6, 0.6);
-      m.block(X(0.25), 10.5, X(0.25) + 1.5, 11.6); m.block(X(0.75) - 1.5, 10.5, X(0.75), 11.6);
+      m.block(X(0.08), 7, X(0.08) + 1.4, 8.1, { hp: 90 }); m.block(X(0.92) - 1.4, 7, X(0.92), 8.1, { hp: 90 });
+      m.wall(X(0.34), 10.5, 12.6, 0.6, { hp: 110 }); m.wall(X(0.66), 10.5, 12.6, 0.6, { hp: 110 });
+      m.block(X(0.25), 10.5, X(0.25) + 1.5, 11.6, { hp: 90 }); m.block(X(0.75) - 1.5, 10.5, X(0.75), 11.6, { hp: 90 });
       // water tower
-      m.wall(X(0.45) + 0.2, 8.4, 11, 0.25); m.wall(X(0.55) - 0.2, 8.4, 11, 0.25);
-      m.floor(X(0.44), X(0.56), 11.5, 0.5);
-      m.block(X(0.46), 11.5, X(0.54), 14);
+      m.wall(X(0.45) + 0.2, 8.4, 11, 0.25, { hp: 60 }); m.wall(X(0.55) - 0.2, 8.4, 11, 0.25, { hp: 60 });
+      m.floor(X(0.44), X(0.56), 11.5, 0.5, { hp: 160 });
+      m.block(X(0.46), 11.5, X(0.54), 14, { hp: 200 });
       m.crates(X(0.5), 5, 2, 1, 1);
       m.floor(X(0.18) + 0.2, X(0.22) - 0.2, 14, 0.3); m.floor(X(0.78) + 0.2, X(0.82) - 0.2, 14, 0.3);
     },
@@ -275,8 +273,6 @@ const maps = [
         const len = 9 + (i % 2) * 3;
         const top = H - 1.1, y = top - len;
         const plat = m.rect(x, y, 3.6, 0.4, { dynamic: true, density: 4, color: '#5a4636', angularDamping: 2 });
-        m.world.createJoint(pl.DistanceJoint({}, beam, plat, V(x - 1, top), V(x - 1.6, y)));
-        m.world.createJoint(pl.DistanceJoint({}, beam, plat, V(x + 1, top), V(x + 1.6, y)));
         m.rope(x - 1, top, plat, -1.6, 0.2); m.rope(x + 1, top, plat, 1.6, 0.2);
         plat.setLinearVelocity(V((Math.random() - 0.5) * 8, 0));
         m.spawn(x, y + 0.2);
@@ -303,6 +299,78 @@ const maps = [
       const b2 = m.rect(cx, cy, 0.7, L, { kinematic: true, color: '#4a3c30' });
       m.tick((t) => { const w = 0.5 + 0.3 * Math.sin(t * 0.2); b1.setAngularVelocity(w); b2.setAngularVelocity(w); });
       m.floor(X(0.44), X(0.56), 1.5, 0.6, { hazard: 'spike' });
+    },
+  },
+  // ---------------- maps made only of physics objects (everything hangs on ropes you can shoot)
+  {
+    name: 'Hängepartie', sky: ['#aab3ad', '#dde0d6'],
+    build(m) {
+      const { W, H } = m;
+      const top = H + 3;
+      const plats = [[0.14, 7, 8], [0.38, 11, 7], [0.62, 11, 7], [0.86, 7, 8], [0.5, 4.5, 9], [0.26, 17, 5], [0.74, 17, 5]];
+      for (const [fx, y, w] of plats) {
+        const x = W * fx;
+        const p = m.rect(x, y - 0.25, w, 0.5, { dynamic: true, density: 3, color: '#3b3632', angularDamping: 0.8 });
+        m.rope(x - w * 0.42, top, p, -w * 0.42, 0.25);
+        m.rope(x + w * 0.42, top, p, w * 0.42, 0.25);
+        m.crate(x + (Math.random() - 0.5) * (w - 2), y, 1);
+        m.spawnRow(x - w / 2 + 0.8, x + w / 2 - 0.8, y);
+      }
+    },
+  },
+  {
+    name: 'Holzbrücke', sky: ['#b7ab95', '#e0d6c3'],
+    build(m) {
+      const { W, H } = m;
+      // a heavy plank bridge across the whole map, held at the edges and by hanging ropes
+      const y = 7, count = Math.ceil(W / 1.8), pw = W / count;
+      let prev = null;
+      const planks = [];
+      for (let i = 0; i < count; i++) {
+        const x = (i + 0.5) * pw;
+        const plank = m.rect(x, y - 0.3, pw - 0.04, 0.6, { dynamic: true, density: 4, color: '#4a3b2e' });
+        if (prev) m.link(prev, plank, x - pw / 2, y - 0.3);
+        planks.push(plank);
+        prev = plank;
+      }
+      m.rope(-0.5, y + 1, planks[0], -pw / 2, 0);
+      m.rope(W + 0.5, y + 1, planks[count - 1], pw / 2, 0);
+      for (let i = 2; i < count - 2; i += 4) m.rope(planks[i].getPosition().x, H + 3, planks[i], 0, 0.3);
+      // wobbly towers of beams and crates
+      for (const fx of [0.25, 0.5, 0.75]) {
+        const x = W * fx;
+        let h = y;
+        for (let k = 0; k < 4; k++) {
+          m.rect(x - 1.1, h + 0.9, 0.4, 1.8, { dynamic: true, density: 1.5, color: '#5b4a3a' });
+          m.rect(x + 1.1, h + 0.9, 0.4, 1.8, { dynamic: true, density: 1.5, color: '#5b4a3a' });
+          m.rect(x, h + 2, 3.2, 0.4, { dynamic: true, density: 1.5, color: '#5b4a3a' });
+          h += 2.2;
+        }
+        m.crate(x, h, 1);
+      }
+      m.spawnRow(W * 0.05, W * 0.95, y);
+    },
+  },
+  {
+    name: 'Kistenturm', sky: ['#9fa9b3', '#d5dade'],
+    build(m) {
+      const { W, H, X } = m;
+      // one big slab on four ropes carrying a mountain of crates
+      const y = 5, sw = W * 0.72;
+      const slab = m.rect(W / 2, y - 0.5, sw, 1, { dynamic: true, density: 5, color: '#34302c', angularDamping: 1 });
+      for (const f of [-0.48, -0.16, 0.16, 0.48]) m.rope(W / 2 + sw * f, H + 3, slab, sw * f, 0.5);
+      const rows = 7;
+      for (let r = 0; r < rows; r++) {
+        const cols = rows - r + 3;
+        for (let c = 0; c < cols; c++) m.crate(W / 2 + (c - (cols - 1) / 2) * 1.25, y + r * 1.21, 1.2);
+      }
+      for (const fx of [0.08, 0.92]) {
+        const p = m.rect(X(fx), 12, 5, 0.5, { dynamic: true, density: 3, color: '#3b3632', angularDamping: 1 });
+        m.rope(X(fx) - 2, H + 3, p, -2, 0.25); m.rope(X(fx) + 2, H + 3, p, 2, 0.25);
+        m.spawnRow(X(fx) - 2, X(fx) + 2, 12.25);
+      }
+      m.spawnRow(W / 2 - sw / 2 + 0.8, W / 2 - sw / 2 + 5, y);
+      m.spawnRow(W / 2 + sw / 2 - 5, W / 2 + sw / 2 - 0.8, y);
     },
   },
 ];
