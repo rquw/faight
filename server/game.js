@@ -310,8 +310,39 @@ class Game {
   // ---------- contacts
   onContact(contact) {
     const fa = contact.getFixtureA(), fb = contact.getFixtureB();
+    this.impactSound(fa, fb);
     this.contactPair(fa, fb);
     this.contactPair(fb, fa);
+  }
+
+  // thumps, clunks and clinks for things hitting things (throttled per body and per tick)
+  impactSound(fa, fb) {
+    if (this.soundBudget <= 0) return;
+    const ba = fa.getBody(), bb = fb.getBody();
+    const va = ba.getLinearVelocity(), vb = bb.getLinearVelocity();
+    const rel = Math.hypot(va.x - vb.x, va.y - vb.y);
+    if (rel < 4.5) return;
+    const ua = ba.getUserData() || {}, ub = bb.getUserData() || {};
+    const t = this.time;
+    const pick = (u, b) => {
+      if (u.kind === 'part') return (!u.char.alive || u.char.stun > 0) ? 'thump' : null;
+      if (u.kind === 'prop' && b.getType() === 'dynamic') return 'clunk';
+      if (u.kind === 'item' || (u.kind === 'proj' && u.proj.type === 'grenade')) return 'clink';
+      return null;
+    };
+    for (const [u, b, other] of [[ua, ba, ub], [ub, bb, ua]]) {
+      const kind = pick(u, b);
+      if (!kind) continue;
+      if (kind === 'thump' && other.kind === 'part' && other.char === u.char) continue;
+      const owner = kind === 'thump' ? u.char : u;
+      if (t - (owner.lastSound || -1) < 0.12) continue;
+      owner.lastSound = t;
+      const p = b.getPosition(), strength = Math.min(1, rel / 18);
+      if (kind === 'clunk') this.event(['clunk', r2(p.x), r2(p.y), r2(strength), u.desc && u.desc.s === 'c' ? 1 : 0]);
+      else this.event([kind, r2(p.x), r2(p.y), r2(strength)]);
+      this.soundBudget--;
+      return;
+    }
   }
 
   contactPair(fa, fb) {
@@ -350,6 +381,7 @@ class Game {
     if (this.state !== 'play' || !this.world) return;
     this.tickN++;
     this.time += DT;
+    this.soundBudget = 10;
     this.slow = Math.max(0, (this.slow || 0) - DT);
     const dt = this.dt = this.slow > 0 ? DT * 0.3 : DT;
     this.freeze = Math.max(0, this.freeze - DT);
@@ -520,7 +552,7 @@ class Game {
       const gunHit = this.chars.find(c => c.alive && c.weapon && c !== b.owner && this.hitsGun(c, b.x, b.y, nx, ny));
       if (gunHit) {
         const h = gunHit.handPos(0);
-        this.event(['bh', b.id, r2(h.x), r2(h.y), -1]);
+        this.event(['bh', b.id, r2(h.x), r2(h.y), -3]);
         this.throwWeapon(gunHit, 5);
         continue;
       }
@@ -546,7 +578,7 @@ class Game {
       const body = best.f.getBody(), u = body.getUserData() || {};
       const sp = Math.hypot(b.vx, b.vy);
       const dx = b.vx / sp, dy = b.vy / sp, kb = b.w.kb;
-      let victim = -1;
+      let victim = body.getType() === 'static' || body.getType() === 'kinematic' ? -1 : -2;
       if (u.kind === 'part') {
         const ch = u.char;
         victim = ch.player.id;
@@ -700,6 +732,7 @@ class Game {
       for (let f = item.body.getFixtureList(); f; f = f.getNext()) f.setFilterData({ groupIndex: c.group, categoryBits: C.CAT_ITEM, maskBits: C.CAT_WORLD | C.CAT_PROP | C.CAT_BODY });
     }
     if (c.weapon.ammo <= 0) item.ttl = 2.5;
+    this.event(['toss', r2(hand.x), r2(hand.y)]);
     c.weapon = null;
     c.pickupCd = 0.4;
   }
@@ -734,10 +767,10 @@ class Game {
         const near = (Math.abs(p.x - cp.x) < 0.7 && p.y < cp.y + 0.8 && p.y > hp.y - 1.2) || Math.hypot(p.x - h.x, p.y - h.y) < 0.7;
         if (!near) continue;
         c.weapon = { type: it.type, ammo: it.ammo, spin: 0 };
-        c.cooldown = 0.15;
+        c.cooldown = C.WEAPONS[it.type].rack;
         this.items.delete(it.id);
         this.world.destroyBody(it.body);
-        this.event(['pick', c.player.id]);
+        this.event(['pick', c.player.id, C.ORDER.indexOf(it.type), C.WEAPONS[it.type].rack]);
         break;
       }
     }

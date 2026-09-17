@@ -168,6 +168,7 @@ function onMessage(m) {
       mapT = 0;
       snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear();
       fade = 1;
+      sfx('start');
       banner = null;
       break;
     case 'e': for (const e of m.e) pendingEvents.push({ t: m.tm / 1000, e }); break;
@@ -504,7 +505,7 @@ function handleEvent(e) {
       }
       kick(-Math.cos(a), Math.sin(a), KICK[type] * 0.02 * (id === myId ? 1.4 : 0.6));
       if (big) kickRot(type === 'sniper' ? 0.08 : 0.04);
-      sfx(type);
+      sfx(type, x);
       break;
     }
     case 'b': {
@@ -521,15 +522,15 @@ function handleEvent(e) {
         hitFlash.set(victim, 0.08);
         spawnParticles(x, y, 10, { dir, spread: 1.2, speed: 7, life: 0.5, size: 0.1, color: colorOf(victim), g: 1 });
         spawnParticles(x, y, 4, { dir, spread: 0.6, speed: 10, life: 0.15, size: 0.06, color: '#ffffff', g: 0 });
-        sfx('hit');
+        sfx('hit', x);
       } else {
         spawnParticles(x, y, 5, { dir: dir + Math.PI, spread: 1.6, speed: 6, life: 0.2, size: 0.06, color: '#ffe9a8', g: 0.5 });
         spawnParticles(x, y, 3, { dir: dir + Math.PI, spread: 1.2, speed: 1.5, life: 0.6, size: 0.25, color: 'rgba(90,90,90,0.25)', g: -0.05, drag: 2, kind: 'puff' });
-        sfx('ric');
+        sfx(victim === -2 ? 'woodhit' : victim === -3 ? 'metalhit' : 'ric', x);
       }
       break;
     }
-    case 'punch': sfx('whoosh'); break;
+    case 'punch': { const h = headPos.get(e[1]); sfx('whoosh', h && h.hx); break; }
     case 'ph': {
       const [, x, y, id, a100] = e;
       const a = a100 / 100;
@@ -537,7 +538,7 @@ function handleEvent(e) {
       rings.push({ x, y, r: 0.2, grow: 7, life: 0.18, max: 0.18, w: 0.12 });
       spawnParticles(x, y, 6, { dir: a, spread: 1, speed: 8, life: 0.2, size: 0.07, color: '#ffffff', g: 0 });
       kick(Math.cos(a), -Math.sin(a), 0.1);
-      sfx('punchhit');
+      sfx('punchhit', x);
       break;
     }
     case 'boom': {
@@ -550,33 +551,48 @@ function handleEvent(e) {
       const a = Math.random() * Math.PI * 2;
       kick(Math.cos(a), Math.sin(a), 0.9);
       kickRot(0.25);
-      sfx('boom');
+      sfx('boom', x);
       break;
     }
-    case 'jump': spawnParticles(e[1], e[2], 4, { dir: Math.PI / 2, spread: 2.5, speed: 1.5, life: 0.35, size: 0.18, color: 'rgba(40,40,40,0.25)', g: 0, drag: 3, kind: 'puff' }); break;
-    case 'bounce': spawnParticles(e[1], e[2], 6, { dir: Math.PI / 2, spread: 2, speed: 5, life: 0.3, size: 0.1, color: '#ffffff', g: 0.5 }); sfx('thud'); break;
-    case 'thud': hitFlash.set(e[3], 0.08); spawnParticles(e[1], e[2], 6, { speed: 4, life: 0.4, size: 0.1, color: colorOf(e[3]) }); sfx('thud'); break;
-    case 'pick': sfx('pick'); break;
+    case 'jump': spawnParticles(e[1], e[2], 4, { dir: Math.PI / 2, spread: 2.5, speed: 1.5, life: 0.35, size: 0.18, color: 'rgba(40,40,40,0.25)', g: 0, drag: 3, kind: 'puff' }); sfx(e[3] ? 'walljump' : 'jump', e[1], null, 'jump' + Math.round(e[1])); break;
+    case 'bounce': spawnParticles(e[1], e[2], 6, { dir: Math.PI / 2, spread: 2, speed: 5, life: 0.3, size: 0.1, color: '#ffffff', g: 0.5 }); sfx('bounce', e[1]); break;
+    case 'thud': hitFlash.set(e[3], 0.08); spawnParticles(e[1], e[2], 6, { speed: 4, life: 0.4, size: 0.1, color: colorOf(e[3]) }); sfx('thud', e[1]); break;
+    case 'pick': {
+      // "tschk ... tschk" - the second one lands exactly when the gun can fire
+      const [, id, w, rack] = e, type = WEAPONS[w], h = headPos.get(id), px = h && h.hx;
+      sfx('rackA', px, type, 'rackA' + id);
+      setTimeout(() => sfx('rackB', px, type, 'rackB' + id), rack * 1000 - 25);
+      break;
+    }
+    case 'step': sfx('step', e[1], null, 'step' + Math.round(e[1] * 2)); break;
+    case 'land':
+      sfx('land', e[1], e[3], 'land' + Math.round(e[1]));
+      spawnParticles(e[1], e[2], 3 + Math.round(e[3] * 6), { dir: Math.PI / 2, spread: 2.8, speed: 1 + e[3] * 3, life: 0.4, size: 0.2, color: 'rgba(40,40,40,0.22)', g: 0, drag: 3, kind: 'puff' });
+      break;
+    case 'thump': sfx('thump', e[1], e[3], 'thump' + Math.round(e[1])); break;
+    case 'clunk': sfx('clunk', e[1], e[4] ? { stone: true } : e[3], 'clunk' + Math.round(e[1])); break;
+    case 'clink': sfx('clink', e[1], e[3], 'clink' + Math.round(e[1])); break;
+    case 'toss': sfx('toss', e[1]); break;
     case 'die': {
       const [, id, x, y] = e;
       spawnParticles(x, y, 18, { speed: 8, life: 0.8, size: 0.13, color: colorOf(id) });
       kick((Math.random() - 0.5), (Math.random() - 0.5), 0.35);
-      sfx('die');
+      sfx('die', x);
       break;
     }
     case 'hz':
       spawnParticles(e[2], e[3], 24, e[1] === 'lava'
         ? { dir: Math.PI / 2, spread: 1.5, speed: 7, life: 1.2, size: 0.5, color: 'rgba(60,60,60,0.5)', g: -0.3, drag: 2, kind: 'puff' }
         : { speed: 9, life: 0.4, size: 0.08, color: '#ffe38a', g: 0.8 });
-      sfx(e[1] === 'lava' ? 'sizzle' : 'saw');
+      sfx(e[1] === 'lava' ? 'sizzle' : 'saw', e[2]);
       break;
-    case 'crack': spawnParticles(e[1], e[2], 18, { speed: 6, life: 1, size: 0.18, color: '#4a3a2c', g: 1.2 }); kick(0, 1, 0.25); sfx('crack'); break;
+    case 'crack': spawnParticles(e[1], e[2], 18, { speed: 6, life: 1, size: 0.18, color: '#4a3a2c', g: 1.2 }); kick(0, 1, 0.25); sfx('crack', e[1]); break;
     case 'add': if (map) { map.shapes.push(e[1]); map.shapeById.set(e[1].id, e[1]); if (e[1].k === 0) levelVersion++; } break;
     case 'rm': if (map) { if (map.shapes.some(s => s.id === e[1] && s.k === 0)) levelVersion++; map.shapes = map.shapes.filter(s => s.id !== e[1]); map.shapeById.delete(e[1]); } break;
     case 'cut': if (map) {
       map.ropes = map.ropes.filter(r => r[0] !== e[1]);
       spawnParticles(e[2], e[3], 8, { speed: 4, life: 0.5, size: 0.07, color: '#6b5a44', g: 1 });
-      sfx('snap');
+      sfx('snap', e[2]);
     } break;
     case 'hp': hpShow.set(e[1], { hp: e[2], t: 1 }); break;
     case 'slow': slowUntil = performance.now() + e[1] * 1000; break;
@@ -1184,6 +1200,7 @@ requestAnimationFrame(frame);
 
 // ---------------------------------------------------------------- audio (synthesized)
 let AC = null, master = null, noiseBuf = null;
+let sndPan = 0, sndDelay = 0;   // stereo position and start offset for the sound being built
 function audio() {
   if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
   try {
@@ -1196,50 +1213,101 @@ function audio() {
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   } catch { AC = null; }
 }
+function out() {
+  if (!AC.createStereoPanner || !sndPan) return master;
+  const p = AC.createStereoPanner();
+  p.pan.value = sndPan;
+  p.connect(master);
+  return p;
+}
 function noise(dur, freq, q, vol, type = 'lowpass', sweep, attack = 0.002) {
-  const t = AC.currentTime;
+  const t = AC.currentTime + sndDelay;
   const src = AC.createBufferSource(); src.buffer = noiseBuf;
   const f = AC.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
   if (sweep) f.frequency.exponentialRampToValueAtTime(sweep, t + dur);
   const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f); f.connect(g); g.connect(master);
+  src.connect(f); f.connect(g); g.connect(out());
   src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.05);
 }
-function thump(f0, f1, dur, vol) {
-  const t = AC.currentTime;
-  const o = AC.createOscillator(); o.type = 'sine';
-  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
-  const g = AC.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
+function thump(f0, f1, dur, vol, type = 'sine') {
+  const t = AC.currentTime + sndDelay;
+  const o = AC.createOscillator(); o.type = type;
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(out()); o.start(t); o.stop(t + dur + 0.05);
 }
+// tiny metallic click: very short resonant noise
+const click = (freq, vol, dur = 0.018) => noise(dur, freq, 8, vol, 'bandpass', null, 0.001);
+// hollow knock: resonant body + short noise
+const knock = (freq, vol) => { thump(freq, freq * 0.6, 0.09, vol); noise(0.06, freq * 3, 2.5, vol * 0.6, 'bandpass'); };
+
+// per weapon "tschk" pairs: part 0 on pickup, part 1 exactly when the gun is ready
+const RACK = {
+  pistol:  [() => { noise(0.05, 2200, 4, 0.35, 'bandpass', 1600); click(5200, 0.3); },
+            () => { noise(0.04, 3000, 4, 0.4, 'bandpass', 2400); click(6400, 0.45); }],
+  ar:      [() => { click(3400, 0.45, 0.03); thump(220, 120, 0.05, 0.25); noise(0.04, 1800, 3, 0.2, 'bandpass'); },
+            () => { noise(0.07, 2500, 3, 0.45, 'bandpass', 1500); click(6000, 0.5); }],
+  shotgun: [() => { noise(0.09, 1100, 3, 0.55, 'bandpass', 700); thump(150, 90, 0.07, 0.35); },
+            () => { noise(0.06, 1800, 3, 0.55, 'bandpass', 2600); click(4200, 0.55, 0.025); thump(180, 110, 0.05, 0.3); }],
+  sniper:  [() => { click(4200, 0.35); noise(0.1, 1500, 5, 0.4, 'bandpass', 1000); },
+            () => { noise(0.08, 2300, 5, 0.45, 'bandpass', 3000); click(5200, 0.55, 0.025); }],
+  rpg:     [() => { thump(130, 70, 0.14, 0.5); noise(0.1, 600, 2, 0.35, 'bandpass'); },
+            () => { click(3000, 0.5, 0.03); thump(260, 160, 0.05, 0.25); }],
+  minigun: [() => { thump(60, 320, 0.35, 0.12, 'sawtooth'); noise(0.35, 900, 2, 0.12, 'bandpass', 2400, 0.05); },
+            () => { click(3600, 0.45, 0.03); thump(320, 280, 0.08, 0.08, 'sawtooth'); }],
+  grenade: [() => { click(5200, 0.35); thump(2100, 1900, 0.05, 0.08, 'triangle'); },
+            () => { thump(3200, 2600, 0.12, 0.1, 'triangle'); click(6000, 0.3); }],
+};
+
 const sfxLast = {};
-function sfx(name) {
+// x: world x for stereo panning, arg: sound specific (intensity, weapon...), key: throttle key
+function sfx(name, x, arg, key = name) {
   if (!AC || muted) return;
   const now = performance.now();
-  if (now - (sfxLast[name] || 0) < 30) return;
-  sfxLast[name] = now;
+  if (now - (sfxLast[key] || 0) < 25) return;
+  sfxLast[key] = now;
+  sndPan = map && x != null ? Math.max(-0.7, Math.min(0.7, (x / map.W - 0.5) * 1.4)) : 0;
+  sndDelay = 0;
   const R = () => 0.85 + Math.random() * 0.3;
+  const k = arg == null ? 1 : arg;
   switch (name) {
-    case 'pistol': noise(0.18, 2200 * R(), 0.7, 0.7, 'lowpass', 300); thump(160, 50, 0.1, 0.5); break;
+    // guns
+    case 'pistol': noise(0.18, 2200 * R(), 0.7, 0.7, 'lowpass', 300); thump(160, 50, 0.1, 0.5); click(4200, 0.15); break;
     case 'ar': noise(0.12, 2600 * R(), 0.7, 0.5, 'lowpass', 400); thump(140, 50, 0.07, 0.35); break;
     case 'minigun': noise(0.07, 3000 * R(), 0.7, 0.35, 'lowpass', 600); break;
     case 'shotgun': noise(0.45, 1600, 0.6, 1, 'lowpass', 120); thump(110, 35, 0.25, 0.9); break;
-    case 'sniper': noise(0.7, 4000, 0.5, 1, 'lowpass', 150); thump(180, 30, 0.35, 0.9); break;
+    case 'sniper': noise(0.7, 4000, 0.5, 1, 'lowpass', 150); thump(180, 30, 0.35, 0.9); sndDelay = 0.25; noise(0.5, 900, 0.5, 0.25, 'lowpass', 120, 0.05); break;
     case 'rpg': noise(0.5, 700, 0.8, 0.6, 'lowpass', 2200, 0.03); thump(90, 40, 0.2, 0.5); break;
     case 'grenade': noise(0.12, 900, 1, 0.25, 'bandpass', 300); break;
-    case 'boom': noise(1.4, 1200, 0.6, 1.3, 'lowpass', 40); thump(80, 22, 0.9, 1.1); break;
+    case 'rackA': RACK[k][0](); break;
+    case 'rackB': RACK[k][1](); break;
+    case 'boom': noise(1.4, 1200, 0.6, 1.3, 'lowpass', 40); thump(80, 22, 0.9, 1.1); sndDelay = 0.12; noise(1.2, 500, 0.5, 0.35, 'lowpass', 60, 0.1); break;
+    // bodies
     case 'whoosh': noise(0.13, 500, 2, 0.22, 'bandpass', 1800, 0.03); break;
     case 'punchhit': noise(0.12, 900, 0.8, 0.9, 'lowpass', 150); thump(120 * R(), 40, 0.15, 0.9); break;
     case 'hit': noise(0.1, 1400 * R(), 1, 0.6, 'lowpass', 200); thump(100 * R(), 45, 0.1, 0.6); break;
-    case 'ric': noise(0.08, 4000 * R(), 4, 0.15, 'bandpass', 2000); break;
     case 'thud': thump(90, 35, 0.2, 0.7); noise(0.12, 500, 1, 0.4); break;
-    case 'pick': noise(0.05, 3000, 3, 0.35, 'bandpass'); setTimeout(() => AC && noise(0.05, 2200, 3, 0.3, 'bandpass'), 60); break;
     case 'die': thump(140, 30, 0.35, 0.9); noise(0.3, 700, 0.7, 0.5, 'lowpass', 80); break;
+    case 'step': noise(0.05, 380 * R(), 1, 0.13, 'lowpass', 150); click(1800 * R(), 0.03, 0.012); break;
+    case 'land': thump(95 * R(), 38, 0.16, 0.18 + 0.4 * k); noise(0.1, 450, 1, 0.12 + 0.3 * k, 'lowpass', 120); break;
+    case 'thump': thump(130 * R(), 45, 0.12, 0.15 + 0.45 * k); noise(0.07, 800 * R(), 1, 0.1 + 0.3 * k, 'lowpass', 200); break;
+    case 'jump': noise(0.1, 700, 1.5, 0.1, 'bandpass', 1400, 0.02); break;
+    case 'walljump': noise(0.12, 1800, 1, 0.16, 'bandpass', 700); knock(160, 0.2); break;
+    case 'toss': noise(0.18, 400, 2, 0.25, 'bandpass', 1600, 0.04); break;
+    // world
+    case 'ric': noise(0.07, 3800 * R(), 6, 0.18, 'bandpass', 1800); if (Math.random() < 0.35) { sndDelay = 0.01; thump(2600 * R(), 900, 0.18, 0.05, 'triangle'); } break;
+    case 'woodhit': knock(240 * R(), 0.35); noise(0.05, 1800, 2, 0.15, 'bandpass'); break;
+    case 'metalhit': thump(2400 * R(), 2200, 0.2, 0.18, 'triangle'); click(5200, 0.4, 0.03); break;
+    case 'clunk': if (arg && arg.stone) { thump(80 * R(), 40, 0.14, 0.2 + 0.4 * k); noise(0.09, 1200, 1, 0.1 + 0.25 * k, 'lowpass'); } else knock((170 + Math.random() * 90), 0.12 + 0.4 * k); break;
+    case 'clink': thump(2800 * R(), 2500, 0.1, 0.05 + 0.12 * k, 'triangle'); sndDelay = 0.03; thump(4100 * R(), 3900, 0.07, 0.03 + 0.08 * k, 'triangle'); break;
     case 'sizzle': noise(1, 5000, 0.5, 0.5, 'highpass', 1500, 0.05); break;
     case 'saw': noise(0.4, 3500, 6, 0.5, 'bandpass', 1500); break;
-    case 'crack': noise(0.5, 600, 0.8, 1, 'lowpass', 80); thump(70, 30, 0.3, 0.6); break;
-    case 'snap': noise(0.12, 2500, 3, 0.5, 'bandpass', 900); break;
+    case 'crack': noise(0.5, 600, 0.8, 1, 'lowpass', 80); thump(70, 30, 0.3, 0.6); knock(200, 0.3); break;
+    case 'snap': noise(0.12, 2500, 3, 0.5, 'bandpass', 900); thump(900, 300, 0.08, 0.12, 'triangle'); break;
+    case 'bounce': thump(140, 60, 0.18, 0.4); break;
+    case 'start': noise(0.9, 200, 0.7, 0.25, 'lowpass', 2000, 0.6); thump(55, 45, 0.9, 0.25); break;
     case 'win': thump(220, 110, 0.6, 0.35); noise(0.8, 3000, 0.5, 0.15, 'highpass', 8000, 0.2); break;
   }
+  sndPan = 0; sndDelay = 0;
 }
 })();

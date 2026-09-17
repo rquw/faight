@@ -260,6 +260,8 @@ class Character {
     for (const b of this.bodies) { b.setLinearDamping(this.drag); b.setGravityScale(gs); }
 
     // ---- ground
+    const airTime = this.sinceGrounded;
+    const fallSpeed = -hip.getLinearVelocity().y;
     const hit = this.sinceJumped < 0.2 ? null : this.castGround(stunned ? 0 : move);
     const rest = crouch ? CROUCH_REST : REST;
     this.grounded = false;
@@ -289,6 +291,11 @@ class Character {
         chest.applyForce(V(0, acc * M), neck, true);
         if (gb.getType() === 'dynamic') gb.applyForce(V(0, -Math.min(acc, GRAVITY * 1.5) * M), hit.point, true);
       }
+    }
+
+    if ((this.grounded || touch.ground) && airTime > 0.35 && !stunned) {
+      const hp = hip.getPosition();
+      g.event(['land', r2(hp.x), r2(hp.y - REST), r2(clamp(fallSpeed / 25, 0.2, 1))]);
     }
 
     // ---- air gravity ramp
@@ -331,7 +338,7 @@ class Character {
       if (!wall && hit && hit.fixture.getBody().getType() === 'dynamic') hit.fixture.getBody().applyLinearImpulse(V(0, -M * 6), hit.point, true);
       this.airGravity = 0.25;
       this.jumpBuffer = 0; this.sinceJumped = 0; this.sinceGrounded = 1; this.sinceWall = 1;
-      g.event(['jump', r2(hip.getPosition().x), r2(hip.getPosition().y - REST)]);
+      g.event(['jump', r2(hip.getPosition().x), r2(hip.getPosition().y - REST), wall ? 1 : 0]);
     }
 
     this.legForces(dt, move, crouch);
@@ -349,7 +356,11 @@ class Character {
     } else if (move) {
       // SFTG StepController: swap the forward leg once the legs are spread wide enough
       const spread = Math.abs(wrap(this.legs[0].u.getAngle() - this.legs[1].u.getAngle()));
-      if (spread > 1.05 && this.stepT > 0.16) { this.stepT = 0; this.stepLeg = 1 - this.stepLeg; }
+      if (spread > 1.05 && this.stepT > 0.16) {
+        this.stepT = 0; this.stepLeg = 1 - this.stepLeg;
+        const f = this.footPos(this.stepLeg);
+        this.game.event(['step', r2(f.x), r2(f.y)]);
+      }
       const fwd = move * 0.75, back = -move * 0.5;
       const a = this.stepLeg === 0 ? fwd : back, b = this.stepLeg === 0 ? back : fwd;
       t0 = a; t1 = b; k0 = a - move * 0.45; k1 = b - move * 0.2;
