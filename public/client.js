@@ -188,6 +188,7 @@ let mouseX = innerWidth / 2, mouseY = innerHeight / 2;
 const KEYMAP = { KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r', KeyS: 'd', ArrowDown: 'd', Space: 'j', KeyW: 'j', ArrowUp: 'j', KeyQ: 'th', KeyF: 'th' };
 addEventListener('keydown', (e) => {
   if (!myId || e.target.tagName === 'INPUT') return;
+  if (e.code === 'KeyK' && !e.repeat && ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'bot' }));
   const k = KEYMAP[e.code];
   if (k) { e.preventDefault(); if (!keys[k]) { keys[k] = 1; sendInput(); } }
 });

@@ -2,6 +2,7 @@ const pl = require('planck');
 const C = require('./constants');
 const MAPS = require('./maps');
 const { Character } = require('./character');
+const { Bot } = require('./bot');
 const V = pl.Vec2;
 
 const DT = 1 / 60;
@@ -48,9 +49,33 @@ class Game {
     return p;
   }
 
+  // easter egg: "fabiolul" presses K -> a bot joins and drops straight into the round
+  addBot() {
+    const used = new Set([...this.players.values()].map(p => p.num));
+    let num = 0;
+    while (used.has(num)) num++;
+    const n = [...this.players.values()].filter(p => p.bot).length + 1;
+    const p = {
+      id: this.nextId++, num, name: 'Bot ' + n, color: C.COLORS[num % C.COLORS.length], score: 0,
+      ws: { readyState: 1, send() {} }, input: { l: 0, r: 0, d: 0, j: 0, s: 0, th: 0, ax: 0, ay: 0 }, char: null,
+    };
+    p.bot = new Bot(this, p);
+    this.players.set(p.id, p);
+    if (this.state === 'play' && this.world && !this.ending && this.spawns && this.spawns.length) {
+      const s = this.spawns[Math.floor(Math.random() * this.spawns.length)];
+      p.char = new Character(this, p, s.x + (Math.random() - 0.5), s.y + 0.3);
+      this.chars.push(p.char);
+      this.participants++;
+    }
+    this.broadcastRoster();
+  }
+
   removePlayer(p) {
     this.players.delete(p.id);
     if (p.char && p.char.alive) p.char.die(null);
+    if (!p.bot && ![...this.players.values()].some(o => !o.bot)) {
+      for (const b of [...this.players.values()]) { this.players.delete(b.id); if (b.char && b.char.alive) b.char.die(null); }
+    }
     this.broadcastRoster();
     if (this.players.size === 0) { this.state = 'wait'; this.world = null; }
   }
@@ -108,6 +133,7 @@ class Game {
     def.build(this.mapContext(spawns, n));
 
     spawns.sort((a, b) => a.x - b.x);
+    this.spawns = spawns;
     const players = [...this.players.values()].sort(() => Math.random() - 0.5);
     players.forEach((p, i) => {
       const s = spawns.length ? spawns[Math.floor(((i + 0.5) / players.length) * spawns.length)] : { x: this.W / 2, y: this.H / 2 };
@@ -255,6 +281,7 @@ class Game {
       }
     }
 
+    for (const p of this.players.values()) if (p.bot) this.input(p, p.bot.think());
     for (const c of this.chars) {
       if (!c.alive) continue;
       c.update(DT, c.player.input);

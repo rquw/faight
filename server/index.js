@@ -44,6 +44,10 @@ wss.on('connection', (ws) => {
       room.forceMap = i >= 0 ? i : null;
       return room.startRound();
     }
+    if (msg.t === 'bot' && player && player.name.toLowerCase() === 'fabiolul') {
+      if (room.players.size < 32) room.addBot();
+      return;
+    }
     if (msg.t === 'ping') return ws.send(JSON.stringify({ t: 'pong', c: msg.c }));
     if (msg.t === 'rooms') {
       const list = [...rooms.values()].filter(g => g.players.size > 0).map(g => ({
@@ -90,7 +94,7 @@ setInterval(() => {
   while (acc >= DT) {
     acc -= DT;
     for (const [code, g] of rooms) {
-      if (g.players.size === 0) {
+      if (g.players.size === 0 || ![...g.players.values()].some(p => !p.bot)) {
         if (Date.now() - g.emptySince > 60000) rooms.delete(code);
         continue;
       }
