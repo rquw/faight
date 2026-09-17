@@ -20,6 +20,8 @@ Physics-based stick figure brawler for the classroom, modeled on Stick Fight: Th
 
 Leere Waffen fliegen automatisch weg. Ohne Waffe wird geschlagen.
 
+**Handy:** quer halten. Linker Stick laufen (nach unten = ducken), rechter Stick ziehen = zielen & schießen, kurz tippen = automatisch auf den nächsten Gegner, dazu Sprung- und Drop-Knopf.
+
 **Waffen:** Pistole, Sturmgewehr, Schrotflinte, Sniper, Raketenwerfer, Minigun, Granaten – fallen regelmäßig vom Himmel.
 
 **Maps:** Fabrik, Lagerhalle, Burg, Lavahöhle, Baustelle, Wippe, Dächer, Sägewerk, Mond, Eisberg, Sturm, Kistenregen, Schaukeln, Windmühle. Die Map wächst mit der Spielerzahl, die Kamera zeigt immer die ganze Map.

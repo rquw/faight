@@ -1,6 +1,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #eee; user-select: none;
+html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #eee; user-select: none; -webkit-user-select: none;
+  overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
   font-family: "Arial Black", "Helvetica Neue", Arial, sans-serif; }
 canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: none; }
 
@@ -31,3 +32,28 @@ button.primary:hover { background: #ffd24a; }
 .score em { font-style: normal; font-family: "Arial Black", Arial, sans-serif; font-size: 16px; }
 .score.me span { text-decoration: underline; text-underline-offset: 3px; }
 #mute { position: absolute; top: 10px; right: 14px; pointer-events: auto; font-size: 10px; padding: 4px 8px; background: #0006; }
+
+#touch { position: fixed; inset: 0; touch-action: none; }
+.mobile-hint { display: none; margin: 0; text-align: center; font-family: Arial, sans-serif; font-size: 12px; color: #888; }
+body.touch .keys { display: none; }
+body.touch .mobile-hint { display: block; }
+body.touch #scores { top: 8px; gap: 10px; }
+body.touch .score { font-size: 11px; }
+@media (max-height: 520px) {
+  #menu { align-items: start; overflow-y: auto; }
+  .card { gap: 8px; margin: auto; }
+  .logo { font-size: 56px; margin-bottom: 6px; letter-spacing: -2px; }
+  input, button { padding: 9px 12px; font-size: 15px; }
+}
+
+#rooms { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(8, 8, 8, 0.85); z-index: 5; }
+#rooms .panel { width: min(520px, 100%); max-height: 80vh; overflow-y: auto; background: #181818; border: 2px solid #2c2c2c; border-radius: 8px; padding: 16px; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 18px; }
+.panel-head button { font-size: 12px; padding: 6px 10px; }
+.room-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #262626; font-family: Arial, sans-serif; }
+.room-row .code { font-family: "Arial Black", Arial, sans-serif; font-size: 20px; letter-spacing: 3px; min-width: 70px; }
+.room-row .info { flex: 1; min-width: 0; font-size: 13px; color: #aaa; }
+.room-row .names { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; color: #ddd; }
+.room-row .names i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.room-row button { font-size: 12px; padding: 8px 12px; }
+.rooms-empty { color: #777; font-family: Arial, sans-serif; text-align: center; padding: 20px 0; }

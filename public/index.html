@@ -2,7 +2,10 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#111111">
 <title>faight</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23161616'/><text x='50' y='72' font-size='64' text-anchor='middle' font-family='Arial Black,Arial' font-weight='900' fill='%23f2c12e'>f</text></svg>">
 <link rel="stylesheet" href="style.css">
@@ -20,6 +23,7 @@
       <button id="join">Beitreten</button>
     </div>
     <p id="err"></p>
+    <p class="mobile-hint">Handy quer halten · links laufen · rechts zielen &amp; schießen</p>
     <div class="keys">
       <span><b>A</b><b>D</b> laufen</span>
       <span><b>Space</b> springen</span>
@@ -27,6 +31,13 @@
       <span><b>Maus</b> zielen · schießen</span>
       <span><b>Q</b> Waffe werfen</span>
     </div>
+  </div>
+</div>
+
+<div id="rooms" hidden>
+  <div class="panel">
+    <div class="panel-head"><b>Aktive Räume</b><button id="rooms-close">Schließen</button></div>
+    <div id="rooms-list"></div>
   </div>
 </div>
 

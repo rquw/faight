@@ -45,6 +45,12 @@ wss.on('connection', (ws) => {
       return room.startRound();
     }
     if (msg.t === 'ping') return ws.send(JSON.stringify({ t: 'pong', c: msg.c }));
+    if (msg.t === 'rooms') {
+      const list = [...rooms.values()].filter(g => g.players.size > 0).map(g => ({
+        code: g.code, map: g.mapDef ? g.mapDef.name : '', players: [...g.players.values()].map(p => [p.name, p.color, p.score]),
+      }));
+      return ws.send(JSON.stringify({ t: 'rooms', list }));
+    }
     if ((msg.t === 'create' || msg.t === 'join') && !player) {
       if (msg.t === 'create') {
         const code = newCode();

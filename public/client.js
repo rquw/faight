@@ -49,6 +49,47 @@ $('copy').onclick = () => {
 };
 $('mute').onclick = () => { muted = !muted; $('mute').textContent = muted ? 'Ton aus' : 'Ton an'; };
 
+// hidden room browser: press K five times on the start page
+let kPresses = [], roomsTimer = null;
+addEventListener('keydown', (e) => {
+  if (myId || e.code !== 'KeyK' || e.target.tagName === 'INPUT') return;
+  const now = performance.now();
+  kPresses = kPresses.filter(t => now - t < 2000);
+  kPresses.push(now);
+  if (kPresses.length >= 5) { kPresses = []; openRooms(); }
+});
+function openRooms() {
+  $('rooms').hidden = false;
+  $('rooms-list').innerHTML = '<div class="rooms-empty">Lade…</div>';
+  const ask = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'rooms' })); };
+  if (ws && ws.readyState === 1) ask(); else connect(ask);
+  clearInterval(roomsTimer);
+  roomsTimer = setInterval(ask, 2000);
+}
+function closeRooms() { $('rooms').hidden = true; clearInterval(roomsTimer); }
+$('rooms-close').onclick = closeRooms;
+function renderRooms(list) {
+  const el = $('rooms-list');
+  if (!list.length) { el.innerHTML = '<div class="rooms-empty">Keine aktiven Räume</div>'; return; }
+  el.innerHTML = '';
+  for (const r of list) {
+    const row = document.createElement('div');
+    row.className = 'room-row';
+    row.innerHTML = `<div class="code"></div><div class="info"><span class="meta"></span><div class="names"></div></div><button>Beitreten</button>`;
+    row.querySelector('.code').textContent = r.code;
+    row.querySelector('.meta').textContent = `${r.players.length} Spieler · ${r.map}`;
+    const names = row.querySelector('.names');
+    for (const [name, color, score] of r.players) {
+      const n = document.createElement('span');
+      n.innerHTML = `<i style="background:${color}"></i>`;
+      n.append(`${name} (${score})`);
+      names.appendChild(n);
+    }
+    row.querySelector('button').onclick = () => { closeRooms(); codeIn.value = r.code; go('join'); };
+    el.appendChild(row);
+  }
+}
+
 function connect(onOpen, attempt = 0) {
   if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
   $('err').textContent = attempt ? `Server startet… (${attempt * 3}s)` : '';
@@ -61,7 +102,7 @@ function connect(onOpen, attempt = 0) {
       else $('err').textContent = 'Server nicht erreichbar';
       return;
     }
-    if (myId) { $('menu').hidden = false; $('hud').hidden = true; $('err').textContent = 'Verbindung verloren'; myId = 0; map = null; }
+    if (myId) { $('menu').hidden = false; $('hud').hidden = true; touchLayer.hidden = true; $('err').textContent = 'Verbindung verloren'; myId = 0; map = null; }
   };
   sock.onmessage = (ev) => onMessage(JSON.parse(ev.data));
 }
@@ -69,10 +110,12 @@ function connect(onOpen, attempt = 0) {
 function onMessage(m) {
   switch (m.t) {
     case 'err': $('err').textContent = m.m; break;
+    case 'rooms': if (!$('rooms').hidden) renderRooms(m.list); break;
     case 'joined':
       myId = m.id; roomCode = m.code;
       $('roomcode').textContent = m.code;
       $('menu').hidden = true; $('hud').hidden = false;
+      touchLayer.hidden = !touchMode;
       history.replaceState(null, '', '?code=' + m.code + location.hash);
       break;
     case 'roster':
@@ -160,15 +203,197 @@ addEventListener('mouseup', (e) => { if (e.button === 0) keys.s = 0; else if (e.
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
 
 let lastSent = '';
+function aimPoint() {
+  if (!touchMode) return screenToWorld(mouseX, mouseY);
+  if (!myPos) return { x: map.W / 2, y: map.H / 2 };
+  const d = touch.tapDir || touch.aimDir || { x: touch.face, y: 0 };
+  return { x: myPos.x + d.x * 6, y: myPos.y + d.y * 6 };
+}
+
 function sendInput() {
   if (!ws || ws.readyState !== 1 || !myId || !map) return;
-  const w = screenToWorld(mouseX, mouseY);
+  const w = aimPoint();
   const str = JSON.stringify({ t: 'i', l: keys.l, r: keys.r, d: keys.d, j: keys.j, s: keys.s, th: keys.th, ax: Math.round(w.x * 100) / 100, ay: Math.round(w.y * 100) / 100 });
   if (str === lastSent) return;
   lastSent = str;
   ws.send(str);
 }
 setInterval(sendInput, 33);
+
+// ---------------------------------------------------------------- touch controls (Brawl Stars style)
+// left: floating move stick (down = duck / fast fall), right: attack stick (drag = aim + fire,
+// back to center = cancel, quick tap = shoot at the nearest enemy), plus jump and drop buttons
+let touchMode = false, myPos = null, livePlayers = [];
+const touch = { move: null, attack: null, jump: null, drop: null, aimDir: null, tapDir: null, face: 1 };
+const touchLayer = document.createElement('div');
+touchLayer.id = 'touch';
+touchLayer.hidden = true;
+document.body.insertBefore(touchLayer, $('hud'));
+
+function touchLayout() {
+  const R = Math.max(48, Math.min(86, Math.min(W, H) * 0.14));
+  const m = Math.max(18, R * 0.35);
+  const attack = { x: W - m - R * 1.15, y: H - m - R * 1.15, r: R };
+  return {
+    R,
+    attack,
+    jump: { x: attack.x - R * 2.35, y: H - m - R * 0.7, r: R * 0.62 },
+    drop: { x: attack.x + R * 0.1, y: attack.y - R * 2.2, r: R * 0.42 },
+    moveHint: { x: m + R * 1.25, y: H - m - R * 1.15, r: R },
+  };
+}
+const inCircle = (t, c, k = 1) => Math.hypot(t.clientX - c.x, t.clientY - c.y) <= c.r * k;
+
+function enterTouchMode() {
+  if (touchMode) return;
+  touchMode = true;
+  document.body.classList.add('touch');
+  touchLayer.hidden = !myId;
+}
+addEventListener('touchstart', enterTouchMode, { passive: true });
+if (matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches) enterTouchMode();
+
+touchLayer.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  audio();
+  const el = document.documentElement;
+  if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
+  const L = touchLayout();
+  for (const t of e.changedTouches) {
+    const p = { id: t.identifier, x: t.clientX, y: t.clientY, sx: t.clientX, sy: t.clientY, t0: performance.now() };
+    if (!touch.jump && inCircle(t, L.jump, 1.3)) { touch.jump = p; keys.j = 1; }
+    else if (!touch.drop && inCircle(t, L.drop, 1.35)) { touch.drop = p; keys.th = 1; }
+    else if (!touch.attack && (inCircle(t, L.attack, 1.7) || (t.clientX > W * 0.6 && t.clientY > H * 0.35))) { p.sx = L.attack.x; p.sy = L.attack.y; touch.attack = p; }
+    else if (!touch.move && t.clientX < W * 0.5) touch.move = p;
+  }
+  updateTouchKeys();
+}, { passive: false });
+
+touchLayer.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    for (const k of ['move', 'attack', 'jump', 'drop']) {
+      if (touch[k] && touch[k].id === t.identifier) { touch[k].x = t.clientX; touch[k].y = t.clientY; }
+    }
+  }
+  updateTouchKeys();
+}, { passive: false });
+
+function endTouch(e) {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    if (touch.jump && touch.jump.id === t.identifier) { touch.jump = null; keys.j = 0; }
+    if (touch.drop && touch.drop.id === t.identifier) { touch.drop = null; keys.th = 0; }
+    if (touch.move && touch.move.id === t.identifier) touch.move = null;
+    if (touch.attack && touch.attack.id === t.identifier) {
+      const a = touch.attack, R = touchLayout().R;
+      const quick = performance.now() - a.t0 < 250 && Math.hypot(a.x - a.sx, a.y - a.sy) < R * 0.35;
+      touch.attack = null;
+      touch.aimDir = null;
+      if (quick) tapShoot();
+    }
+  }
+  updateTouchKeys();
+}
+touchLayer.addEventListener('touchend', endTouch, { passive: false });
+touchLayer.addEventListener('touchcancel', endTouch, { passive: false });
+
+function tapShoot() {
+  let best = null, bd = Infinity;
+  if (myPos) for (const p of livePlayers) {
+    if (p[0] === myId || !p[1]) continue;
+    const d = Math.hypot(p[9] / 100 - myPos.x, p[10] / 100 - myPos.y);
+    if (d < bd) { bd = d; best = p; }
+  }
+  if (best) {
+    const dx = best[9] / 100 - myPos.x, dy = best[10] / 100 + 0.15 - myPos.y, l = Math.hypot(dx, dy) || 1;
+    touch.tapDir = { x: dx / l, y: dy / l };
+  } else touch.tapDir = { x: touch.face, y: 0 };
+  keys.s = 1; sendInput();
+  setTimeout(() => { keys.s = touch.attack ? keys.s : 0; touch.tapDir = null; sendInput(); }, 90);
+}
+
+function updateTouchKeys() {
+  const R = touchLayout().R;
+  keys.l = keys.r = keys.d = 0;
+  if (touch.move) {
+    const dx = (touch.move.x - touch.move.sx) / R, dy = (touch.move.y - touch.move.sy) / R;
+    if (dx < -0.3) keys.l = 1;
+    if (dx > 0.3) keys.r = 1;
+    if (dy > 0.6) keys.d = 1;
+    if (Math.abs(dx) > 0.3) touch.face = Math.sign(dx);
+  }
+  if (touch.attack) {
+    const dx = touch.attack.x - touch.attack.sx, dy = touch.attack.y - touch.attack.sy, l = Math.hypot(dx, dy);
+    if (l > R * 0.3) {
+      touch.aimDir = { x: dx / l, y: -dy / l };
+      touch.face = Math.sign(dx) || touch.face;
+      keys.s = 1;
+    } else { touch.aimDir = null; keys.s = 0; }
+  } else if (!touch.tapDir) keys.s = 0;
+  sendInput();
+}
+
+function drawTouchUI() {
+  const L = touchLayout(), R = L.R;
+  const ring = (x, y, r, fill, stroke) => {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.stroke(); }
+  };
+  const myColor = colorOf(myId);
+  // aim guide from the player
+  if (myPos && myPos.alive && touch.aimDir) {
+    const px = sx(myPos.x), py = sy(myPos.y);
+    ctx.save();
+    ctx.setLineDash([10, 9]); ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.beginPath(); ctx.moveTo(px + touch.aimDir.x * cam.s, py - touch.aimDir.y * cam.s);
+    ctx.lineTo(px + touch.aimDir.x * cam.s * 7, py - touch.aimDir.y * cam.s * 7); ctx.stroke();
+    ctx.restore();
+  }
+  // move stick
+  const mv = touch.move;
+  const mb = mv ? { x: mv.sx, y: mv.sy } : L.moveHint;
+  ring(mb.x, mb.y, R, 'rgba(0,0,0,0.22)', 'rgba(255,255,255,0.35)');
+  let kx = mb.x, ky = mb.y;
+  if (mv) { const dx = mv.x - mv.sx, dy = mv.y - mv.sy, l = Math.hypot(dx, dy), k = l > R ? R / l : 1; kx += dx * k; ky += dy * k; }
+  ring(kx, ky, R * 0.45, 'rgba(255,255,255,0.55)');
+  // attack stick
+  const at = touch.attack;
+  ring(L.attack.x, L.attack.y, R, at ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.22)', 'rgba(255,255,255,0.35)');
+  let ax = L.attack.x, ay = L.attack.y;
+  if (at) { const dx = at.x - at.sx, dy = at.y - at.sy, l = Math.hypot(dx, dy), k = l > R ? R / l : 1; ax += dx * k; ay += dy * k; }
+  ring(ax, ay, R * 0.48, myColor, 'rgba(0,0,0,0.35)');
+  if (myPos && myPos.armed) {
+    ctx.fillStyle = '#111'; ctx.font = `900 ${Math.round(R * 0.32)}px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(myPos.ammo, ax, ay);
+    ctx.textBaseline = 'alphabetic';
+  } else {
+    // fist
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(ax, ay, R * 0.16, 0, 7); ctx.fill();
+  }
+  // jump
+  ring(L.jump.x, L.jump.y, L.jump.r, touch.jump ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.25)', 'rgba(255,255,255,0.5)');
+  ctx.fillStyle = '#fff';
+  const jr = L.jump.r * 0.42;
+  ctx.beginPath(); ctx.moveTo(L.jump.x, L.jump.y - jr); ctx.lineTo(L.jump.x + jr, L.jump.y + jr * 0.5); ctx.lineTo(L.jump.x - jr, L.jump.y + jr * 0.5); ctx.fill();
+  // drop / throw weapon
+  const canDrop = myPos && myPos.armed;
+  ctx.globalAlpha = canDrop ? 1 : 0.4;
+  ring(L.drop.x, L.drop.y, L.drop.r, touch.drop ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.25)', 'rgba(255,255,255,0.5)');
+  ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(L.drop.r * 0.42)}px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('DROP', L.drop.x, L.drop.y + 1);
+  ctx.textBaseline = 'alphabetic';
+  ctx.globalAlpha = 1;
+  // portrait hint
+  if (H > W) {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = '800 22px Arial, sans-serif';
+    ctx.fillText('Handy quer halten', W / 2, H / 2);
+  }
+}
 
 // ---------------------------------------------------------------- camera: always the whole map, springy shake
 const cam = { cx: 0, cy: 0, s: 20, ox: 0, oy: 0, vx: 0, vy: 0, rot: 0, vr: 0 };
@@ -607,7 +832,7 @@ function drawPlayer(p, time, dt) {
   if (wIdx >= 0 && alive) {
     let aim = p[2] / 100;
     if (id === myId) {
-      const m = screenToWorld(mouseX, mouseY);
+      const m = aimPoint();
       aim = Math.atan2(m.y - (parts[1][1] + 0.15), m.x - parts[1][0]);
     }
     const [lx, ly, la] = parts[4];
@@ -670,6 +895,9 @@ function render(nowMs) {
     players.push(out);
   }
   updateCam(dt);
+  livePlayers = players;
+  const meRow = players.find(p => p[0] === myId);
+  myPos = meRow ? { x: meRow[9] / 100, y: meRow[10] / 100 + 0.15, alive: meRow[1], armed: meRow[3] >= 0, ammo: meRow[4] } : null;
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.translate(W / 2, H / 2);
@@ -862,6 +1090,7 @@ function render(nowMs) {
     ctx.fillRect(0, 0, W, H);
   }
 
+  if (myId && touchMode) { drawTouchUI(); return; }
   // crosshair + ammo
   if (myId) {
     const me = players.find(p => p[0] === myId);
