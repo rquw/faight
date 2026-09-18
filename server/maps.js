@@ -297,7 +297,13 @@ const maps = [
       const cx = W / 2, cy = 11, L = Math.min(H * 0.8, W * 0.36);
       const b1 = m.rect(cx, cy, L, 0.7, { kinematic: true, color: '#4a3c30' });
       const b2 = m.rect(cx, cy, 0.7, L, { kinematic: true, color: '#4a3c30' });
-      m.tick((t) => { const w = 0.5 + 0.3 * Math.sin(t * 0.2); b1.setAngularVelocity(w); b2.setAngularVelocity(w); });
+      // the blades change gear every ~5 s: slow enough to ride, then fast enough to fling you across
+      m.tick((t) => {
+        const phase = Math.floor(t / 5) % 3;
+        const target = phase === 0 ? 0.35 : phase === 1 ? 1.1 : 2.2;
+        const w = target + 0.15 * Math.sin(t * 1.7);
+        b1.setAngularVelocity(w); b2.setAngularVelocity(w);
+      });
       m.floor(X(0.44), X(0.56), 1.5, 0.6, { hazard: 'spike' });
     },
   },
@@ -530,13 +536,13 @@ const maps = [
       // branch above sits 3 m higher on the other side, so you can climb a tree by zig-zagging
       for (const fx of [0.14, 0.5, 0.86]) {
         const x = X(fx);
-        const crown = Math.min(H - 4, 15.4);
+        const crown = Math.min(H - 4, 14.2);
         // the trunk starts above head height: you can always walk along the forest floor
         m.wall(x, 5.5, crown, 0.9, { color: wood });
         // branches on both sides every 3 m, so you can climb either side of the trunk
-        for (const y of [6, 9, 12]) {
+        for (const y of [5.8, 8.6, 11.4]) {
           if (y > crown - 1) continue;
-          const len = 5 - (y - 6) * 0.15;
+          const len = 5 - (y - 5.8) * 0.15;
           m.floor(x - 0.45 - len, x - 0.45, y, 0.45, { color: wood, hp: 160 });
           m.floor(x + 0.45, x + 0.45 + len, y, 0.45, { color: wood, hp: 160 });
         }

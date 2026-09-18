@@ -27,6 +27,7 @@ const AIR_RAMP = 80 * U;           // extra m/s² per second spent in the air
 const JUMP = 25 * U;
 const RUN_ACCEL = 96;              // m/s² into every part -> 12 m/s top speed with DRAG
 const WORLD_G = 28;
+const COYOTE = 0.3;                // you may still jump this long after walking off a ledge
 
 class Character {
   constructor(game, player, x, y) {
@@ -169,7 +170,7 @@ class Character {
     return hit;
   }
 
-  jumpPressed() { this.jumpBuffer = 0.1; }
+  jumpPressed() { this.jumpBuffer = 0.18; }   // pressing jump just before landing still counts
 
   // SFTG CheckForGroundCollision: contact normal within 75° of up = ground, 75°-95° = wall
   touchContacts() {
@@ -343,8 +344,8 @@ class Character {
       this.lastWallSide = this.wallSide || this.lastWallSide;
     }
 
-    // ---- jump (SFTG: grounded or on a wall in the last 0.2 s, at most every 0.3 s)
-    if (this.jumpBuffer > 0 && !frozen && this.sinceJumped > 0.3 && (this.sinceGrounded < 0.2 || this.sinceWall < 0.2)) {
+    // ---- jump: grounded or on a wall within the coyote window (0.3 s), at most every 0.3 s
+    if (this.jumpBuffer > 0 && !frozen && this.sinceJumped > 0.3 && (this.sinceGrounded < COYOTE || this.sinceWall < COYOTE)) {
       const wall = this.sinceWall < this.sinceGrounded;
       for (const b of this.bodies) {
         const bv = b.getLinearVelocity();

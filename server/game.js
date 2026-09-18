@@ -189,6 +189,7 @@ class Game {
 
     const spawns = [];
     def.build(this.mapContext(spawns, n));
+    this.addSteps(spawns);
 
     spawns.sort((a, b) => a.x - b.x);
     this.spawns = spawns;
@@ -203,6 +204,79 @@ class Game {
     this.participants = players.length;
     this.broadcast(this.mapMessage());
     this.broadcastRoster();
+  }
+
+  // ---- platforming assist: after a map is built, every ledge that would need more than one clean
+  // jump to reach gets small stepping platforms below it. Keeps hand-built maps interesting but
+  // makes sure nothing is a 6 m wall you can only wall-climb.
+  addSteps(spawns) {
+    const MAX_RISE = 3, STEP_W = 2.6, HEAD = 2.3;
+    const surfaces = () => {
+      const out = [];
+      for (const b of this.props.values()) {
+        const u = b.getUserData();
+        if (!u || u.desc.s !== 'b' || u.desc.hz) continue;
+        if (b.getType() !== 'static') continue;
+        const a = b.getAngle();
+        if (Math.abs(Math.sin(a)) > 0.35) continue;
+        const p = b.getPosition();
+        const hw = Math.abs(u.size.w / 2 * Math.cos(a)) + Math.abs(u.size.h / 2 * Math.sin(a));
+        const hh = Math.abs(u.size.w / 2 * Math.sin(a)) + Math.abs(u.size.h / 2 * Math.cos(a));
+        if (hw * 2 < 1) continue;
+        out.push({ x0: p.x - hw, x1: p.x + hw, y: p.y + hh, body: b, color: u.desc.c });
+      }
+      return out;
+    };
+    const free = (x0, y0, x1, y1) => {
+      let ok = true;
+      this.world.queryAABB(pl.AABB(V(x0, y0), V(x1, y1)), (f) => {
+        const b = f.getBody(), u = b.getUserData() || {};
+        if (f.isSensor() || u.kind !== 'prop') return true;
+        ok = false;
+        return false;
+      });
+      return ok;
+    };
+    const added = [];
+    for (let pass = 0; pass < 5; pass++) {
+      const surf = surfaces();
+      let placed = 0;
+      for (const s of surf) {
+        // the easiest existing way up onto this ledge
+        let best = null;
+        for (const t of surf) {
+          if (t === s || t.y >= s.y - 0.3) continue;
+          const gap = Math.max(0, Math.max(t.x0 - s.x1, s.x0 - t.x1));
+          const rise = s.y - t.y;
+          if (rise > 14 || gap > 9) continue;
+          const cost = rise + gap * 0.4;
+          if (!best || cost < best.cost) best = { t, rise, gap, cost };
+        }
+        if (!best || best.rise <= MAX_RISE) continue;
+        // climb upward from the lower platform: one step per pass until the ledge is one jump away
+        const t = best.t;
+        const left = t.x1 <= s.x0 || (t.x0 < s.x0 && t.x1 < s.x1);
+        const edge = left ? s.x0 : s.x1;
+        const ys = [Math.min(s.y - 2.6, t.y + 2.6), s.y - 2.6, t.y + 2.6, s.y - 2.0, t.y + 2.0];
+        const dirs = left ? [-1, 1] : [1, -1];
+        const spots = [];
+        for (const y of ys) {
+          if (y < t.y + 0.8 || y > s.y - 1) continue;
+          for (const d of dirs) for (const off of [STEP_W / 2 + 0.35, STEP_W / 2 + 1.8, STEP_W / 2 + 3.4]) spots.push([edge + d * off, y]);
+        }
+        for (const [cx, y] of spots) {
+          if (cx < 1.5 || cx > this.W - 1.5) continue;
+          if (!free(cx - STEP_W / 2 - 0.2, y - 0.75, cx + STEP_W / 2 + 0.2, y + HEAD)) continue;
+          if (spawns.some(sp => Math.abs(sp.x - cx) < STEP_W / 2 + 1 && Math.abs(sp.y - y) < 3)) continue;
+          added.push({ x: cx, y, color: s.color });
+          this.addProp('b', cx, y - 0.25, { w: STEP_W, h: 0.5 }, { color: s.color || '#33353a' });
+          placed++;
+          break;
+        }
+      }
+      if (!placed) break;
+    }
+    return added.length;
   }
 
   mapContext(spawns, n) {
@@ -963,6 +1037,7 @@ function mapPreview(name) {
   g.nextObj = 1; g.time = 0;
   const spawns = [];
   def.build(g.mapContext(spawns, n));
+  g.addSteps(spawns);
   const shapes = [...g.props.values()].map(b => {
     const u = b.getUserData(), p = b.getPosition();
     return Object.assign({}, u.desc, { x: r2(p.x), y: r2(p.y), a: r2(b.getAngle()) });
