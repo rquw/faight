@@ -6,6 +6,8 @@ const HH = [0.17, 0.2, 0, 0.17, 0.16, 0.17, 0.16, 0.23, 0.23, 0.23, 0.23];
 const HEAD_R = 0.27, LW = 0.2;
 let INTERP = 0.1, snapGap = 1 / 30, lastSnapAt = 0, jitter = 0.02;
 const KICK = { pistol: 2.2, ar: 1.1, shotgun: 6, sniper: 9, rpg: 6, minigun: 0.7, grenade: 0.5 };
+// distance from the hand to the drawn barrel tip - shots, the laser and the grenade arc start there
+const BARREL = { pistol: 0.4, ar: 0.82, shotgun: 0.86, sniper: 1.2, rpg: 1.08, minigun: 1.06, grenade: 0.2 };
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c');
@@ -128,6 +130,10 @@ function renderMapPick() {
     b.textContent = label;
     if ((queuedMap || null) === value) b.className = 'on';
     b.onclick = () => { ws.send(JSON.stringify({ t: 'queue', map: value })); $('mappick').hidden = true; };
+    if (value && !value.startsWith('cat:')) {
+      b.onmouseenter = () => showPreview(value);
+      b.addEventListener('focus', () => showPreview(value));
+    }
     parent.appendChild(b);
   };
   const any = document.createElement('div');
@@ -146,6 +152,43 @@ function renderMapPick() {
     list.appendChild(row);
   }
 }
+// hovering a map in the picker shows what it looks like (built once per map on the server)
+const previewCache = new Map();
+function showPreview(name) {
+  $('mapprev-name').textContent = name;
+  const have = previewCache.get(name);
+  if (have) return drawPreview(have);
+  const c = $('mapprev'), g = c.getContext('2d');   // don't leave the previous map under a new name
+  g.fillStyle = '#101010'; g.fillRect(0, 0, c.width, c.height);
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'preview', map: name }));
+}
+function drawPreview(d) {
+  if ($('mapprev-name').textContent !== d.name) return;
+  const c = $('mapprev'), g = c.getContext('2d');
+  const s = Math.min(c.width / (d.W + 2), c.height / (d.H + 2));
+  const ox = (c.width - d.W * s) / 2, oy = (c.height - d.H * s) / 2;
+  const px = (x) => ox + x * s, py = (y) => c.height - oy - y * s;
+  const grd = g.createLinearGradient(0, 0, 0, c.height);
+  grd.addColorStop(0, d.sky[0]); grd.addColorStop(1, d.sky[1]);
+  g.fillStyle = grd; g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = 'rgba(30,30,30,0.9)'; g.lineWidth = 1;
+  const byId = new Map(d.shapes.map(sh => [sh.id, sh]));
+  for (const [ax, ay, id, lx, ly] of d.ropes) {
+    const sh = byId.get(id);
+    if (!sh) continue;
+    const ca = Math.cos(sh.a), sa = Math.sin(sh.a);
+    g.beginPath(); g.moveTo(px(ax), py(ay)); g.lineTo(px(sh.x + lx * ca - ly * sa), py(sh.y + lx * sa + ly * ca)); g.stroke();
+  }
+  for (const sh of d.shapes) {
+    g.fillStyle = sh.hz === 'lava' ? '#e2561f' : sh.hz ? '#8b2f2f' : sh.c || (sh.cr ? '#3a3029' : '#26272a');
+    if (sh.s === 'c') { g.beginPath(); g.arc(px(sh.x), py(sh.y), sh.r * s, 0, 7); g.fill(); continue; }
+    g.save();
+    g.translate(px(sh.x), py(sh.y)); g.rotate(-sh.a);
+    g.fillRect(-sh.w / 2 * s, -sh.h / 2 * s, sh.w * s, sh.h * s);
+    g.restore();
+  }
+}
+
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyL' && !e.repeat && myId && e.target.tagName !== 'INPUT') toggleMapPick();
   if (e.code === 'Escape') $('mappick').hidden = true;
@@ -232,6 +275,7 @@ function onMessage(m) {
       break;
     }
     case 'rooms': if (!$('rooms').hidden) renderRooms(m.list); break;
+    case 'preview': previewCache.set(m.data.name, m.data); drawPreview(m.data); break;
     case 'joined':
       myId = m.id; roomCode = m.code;
       mapNames = m.maps || [];
@@ -625,17 +669,31 @@ function spawnParticles(x, y, n, o) {
   }
 }
 
+function handOf(id) {
+  const p = livePlayers.find(r => r[0] === id);
+  if (!p) return null;
+  const lx = p[18] / 100, ly = p[19] / 100, la = p[20] / 100;
+  return { x: lx + Math.sin(la) * HH[4], y: ly - Math.cos(la) * HH[4] };
+}
+
 function processEvents(rt) {
   while (pendingEvents.length && pendingEvents[0].t <= rt + 0.017) handleEvent(pendingEvents.shift().e, rt - pendingEvents.length * 0);
   if (pendingEvents.length > 600) pendingEvents.splice(0, pendingEvents.length - 600);
 }
 
 let lastPlayers = new Map();
+let fireShift = null;
 function handleEvent(e) {
   switch (e[0]) {
     case 'fire': {
-      const [, id, w, x, y, a100] = e;
+      const [, id, w, ex, ey, a100] = e;
       const a = a100 / 100, type = WEAPONS[w];
+      // start the flash at the barrel of the gun as it is drawn right now, not where the server
+      // stood a few frames ago - otherwise the shot appears to come out behind the weapon
+      const h = handOf(id);
+      const x = h ? h.x + Math.cos(a) * BARREL[type] : ex;
+      const y = h ? h.y + Math.sin(a) * BARREL[type] : ey;
+      fireShift = { dx: x - ex, dy: y - ey, t: performance.now() };
       const big = type === 'shotgun' || type === 'sniper' || type === 'rpg';
       flashes.push({ x, y, a, life: 0.06, max: 0.06, size: big ? 1 : 0.6 });
       spawnParticles(x, y, big ? 8 : 3, { dir: a, spread: 0.5, speed: big ? 10 : 6, life: 0.12, size: 0.07, color: '#fff3c0', g: 0 });
@@ -649,7 +707,8 @@ function handleEvent(e) {
     }
     case 'b': {
       const [, id, x, y, vx, vy, w, life] = e;
-      bullets.set(id, { x, y, vx, vy, life, w: WEAPONS[w], trail: [] });
+      const sh = fireShift && performance.now() - fireShift.t < 60 ? fireShift : null;
+      bullets.set(id, { x: x + (sh ? sh.dx : 0), y: y + (sh ? sh.dy : 0), vx, vy, life, w: WEAPONS[w], trail: [] });
       break;
     }
     case 'bh': {
@@ -1139,7 +1198,7 @@ function drawLaser(p) {
   let aim = p[2] / 100;
   if (p[0] === myId) { const m = aimPoint(); aim = Math.atan2(m.y - (p[10] / 100 + 0.15), m.x - p[9] / 100); }
   const dx = Math.cos(aim), dy = Math.sin(aim);
-  const x0 = hx + dx * 1.22, y0 = hy + dy * 1.22;
+  const x0 = hx + dx * BARREL.sniper, y0 = hy + dy * BARREL.sniper;
   const len = rayLevel(x0, y0, dx, dy, 70);
   const x1 = x0 + dx * len, y1 = y0 + dy * len;
   ctx.save();
@@ -1150,6 +1209,38 @@ function drawLaser(p) {
   ctx.beginPath(); ctx.moveTo(sx(x0), sy(y0)); ctx.lineTo(sx(x1), sy(y1)); ctx.stroke();
   ctx.fillStyle = 'rgba(255,60,45,0.95)';
   ctx.beginPath(); ctx.arc(sx(x1), sy(y1), Math.max(2.5, 0.11 * cam.s), 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+// where a thrown grenade would land: the same launch velocity the server uses, stopped at the
+// first wall it would hit
+function drawArc(p) {
+  const lx = p[18] / 100, ly = p[19] / 100, la = p[20] / 100;
+  const hx = lx + Math.sin(la) * HH[4], hy = ly - Math.cos(la) * HH[4];
+  let aim = p[2] / 100;
+  if (p[0] === myId) { const m = aimPoint(); aim = Math.atan2(m.y - (p[10] / 100 + 0.15), m.x - p[9] / 100); }
+  let x = hx + Math.cos(aim) * BARREL.grenade, y = hy + Math.sin(aim) * BARREL.grenade;
+  let vx = Math.cos(aim) * 15, vy = Math.sin(aim) * 15 + 2;
+  const g = (map.g || -28), step = 1 / 16;
+  const mine = p[0] === myId;
+  ctx.save();
+  for (let i = 0; i < 22; i++) {
+    const nx = x + vx * step, ny = y + vy * step + 0.5 * g * step * step;
+    const len = Math.hypot(nx - x, ny - y);
+    const hit = rayLevel(x, y, (nx - x) / len, (ny - y) / len, len);
+    const done = hit < len - 0.01;
+    const ex = done ? x + (nx - x) * (hit / len) : nx, ey = done ? y + (ny - y) * (hit / len) : ny;
+    const al = (mine ? 0.75 : 0.4) * (1 - i / 24);
+    ctx.fillStyle = `rgba(255,255,255,${al})`;
+    ctx.beginPath(); ctx.arc(sx(ex), sy(ey), Math.max(1.5, 0.05 * cam.s), 0, 7); ctx.fill();
+    if (done) {
+      ctx.strokeStyle = `rgba(255,120,60,${mine ? 0.9 : 0.5})`; ctx.lineWidth = Math.max(1.5, 0.04 * cam.s);
+      ctx.beginPath(); ctx.arc(sx(ex), sy(ey), 0.45 * cam.s, 0, 7); ctx.stroke();
+      break;
+    }
+    vy += g * step;
+    x = nx; y = ny;
+  }
   ctx.restore();
 }
 
@@ -1299,8 +1390,9 @@ function render(nowMs) {
     const c = Math.cos(p.a), s = Math.sin(p.a);
     ctx.beginPath(); ctx.moveTo(sx(ax), sy(ay)); ctx.lineTo(sx(p.x + lx * c - ly * s), sy(p.y + lx * s + ly * c)); ctx.stroke();
   }
-  drawBlockSides(list);
+  ensureLayers();
   blitLayer(layers.level);
+  drawBlockSides(list);
   drawBlockFronts(list, time);
 
   if (A) {
@@ -1337,7 +1429,7 @@ function render(nowMs) {
       ctx.restore();
     }
     players.sort((a, b) => a[1] - b[1] || (a[0] === myId) - (b[0] === myId));
-    for (const p of players) if (p[3] === 3 && p[1]) drawLaser(p);
+    for (const p of players) if (p[1]) { if (p[3] === 3) drawLaser(p); else if (p[3] === 6) drawArc(p); }
     for (const p of players) headPos.set(p[0], drawPlayer(p, time, dt));
     // freshly joined players are briefly protected - show it
     for (const p of players) {

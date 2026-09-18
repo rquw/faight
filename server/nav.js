@@ -76,9 +76,10 @@ function build(game) {
     if (Math.abs(dx) > MAX_JUMP_DX || dy < -MAX_DROP || dy > MAX_CLIMB) return;
     if (dy <= MAX_JUMP_UP) {
       // try a few arc heights (low hop, full jump, over a parapet when dropping down)
+      // a real jump tops out ~3.6 m above the take-off, so anything up to ~3 m is reachable
       const base = Math.max(a.y, b.y);
-      const peaks = dy > 0.3 ? [base + 2.3] : [base + 1.2, base + 2.3, a.y + 3.6];
-      const arc = peaks.find(peak => peak <= a.y + 4.4 && rayClear(world, a.x, a.y + 1, a.x, peak) && rayClear(world, a.x, peak, b.x, peak) && rayClear(world, b.x, peak, b.x, b.y + 1));
+      const peaks = dy > 0.3 ? [Math.max(a.y + 1.2, b.y + 0.45), b.y + 1.4] : [base + 0.9, base + 1.8, a.y + 3.2];
+      const arc = peaks.find(peak => peak <= a.y + 3.5 && rayClear(world, a.x, a.y + 1, a.x, peak) && rayClear(world, a.x, peak, b.x, peak) && rayClear(world, b.x, peak, b.x, b.y + 1));
       if (arc != null) {
         a.edges.push({ to: j, cost: Math.abs(dx) + Math.max(0, dy) * 1.5 + (arc > base + 1.5 ? 2.5 : 1.5), type: dy > 0.3 || Math.abs(dx) > 1.5 || arc > base + 1.5 ? 'jump' : 'walk' });
       } else if (dy < -0.5 && rayClear(world, a.x, a.y + 1, b.x, a.y + 1) && rayClear(world, b.x, a.y + 1, b.x, b.y + 1)) {

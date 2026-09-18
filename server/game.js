@@ -354,7 +354,7 @@ class Game {
       shapes.push(Object.assign({}, u.desc, { x: r2(p.x), y: r2(p.y), a: r2(b.getAngle()) }));
     }
     return {
-      t: 'map', name: this.mapDef.name, sky: this.mapDef.sky, dark: !!this.mapDef.dark,
+      t: 'map', name: this.mapDef.name, sky: this.mapDef.sky, dark: !!this.mapDef.dark, g: this.mapDef.gravity || -28,
       W: this.W, H: this.H, shapes, playing: this.chars.map(c => c.player.id),
       ropes: this.ropes.map(r => [r.id, r2(r.ax), r2(r.ay), r.body.getUserData().id, r.lx, r.ly]),
     };
@@ -494,17 +494,38 @@ class Game {
     if (this.tickN % every === 0) this.sendSnapshot();
   }
 
+  // which hazard is this character touching right now?
+  hazardAt(c) {
+    let hz = c.alive && c.groundFixture && (c.groundFixture.getUserData() || {}).hazard;
+    if (!hz) {
+      for (const f of this.hazards) {
+        for (const pt of c.probePoints()) if (f.testPoint(pt)) return (f.getUserData() || {}).hazard;
+      }
+    }
+    return hz;
+  }
+
   checkHazards() {
     for (const c of this.chars) {
-      if (!c.alive) continue;
+      if (c.gone) continue;
       const p = c.chest.getPosition();
-      if (p.y < -8 || p.x < -15 || p.x > this.W + 15 || p.y > this.H + 40) { c.die(null); continue; }
-      let hz = c.groundFixture && (c.groundFixture.getUserData() || {}).hazard;
-      if (!hz) {
-        outer: for (const f of this.hazards) {
-          for (const pt of c.probePoints()) if (f.testPoint(pt)) { hz = (f.getUserData() || {}).hazard; break outer; }
+      // dead bodies still get thrown around by saws and lava, which is the whole point of ragdolls
+      if (!c.alive) {
+        if (p.y < -8 || p.x < -15 || p.x > this.W + 15) continue;
+        const hz = this.hazardAt(c);
+        if (hz && this.time - (c.lastLava || -1) >= 0.35) {
+          c.lastLava = this.time;
+          this.event(['hz', hz, r2(p.x), r2(p.y)]);
+          const up = hz === 'lava' ? 22 : 15;
+          for (const b of c.bodies) {
+            b.setLinearVelocity(V((Math.random() - 0.5) * 12, up * (0.7 + Math.random() * 0.7)));
+            b.setAngularVelocity((Math.random() - 0.5) * 22);
+          }
         }
+        continue;
       }
+      if (p.y < -8 || p.x < -15 || p.x > this.W + 15 || p.y > this.H + 40) { c.die(null); continue; }
+      const hz = this.hazardAt(c);
       if (hz === 'lava') {
         if (this.time - (c.lastLava || -1) >= 0.3) {
           c.lastLava = this.time;
@@ -926,4 +947,32 @@ function pickWeapon() {
   return 'pistol';
 }
 
-module.exports = { Game, DT };
+// A map built once in a throwaway world, just to show what it looks like in the map picker.
+const previewCache = new Map();
+function mapPreview(name) {
+  if (previewCache.has(name)) return previewCache.get(name);
+  const idx = MAPS.findIndex(m => m.name === name);
+  if (idx < 0) return null;
+  const def = MAPS[idx], n = 6;
+  const g = new Game('prev');
+  g.W = Math.round(46 + 3 * Math.max(0, n - 4));
+  g.H = Math.round(g.W * 0.56 * 10) / 10;
+  g.world = new pl.World({ gravity: V(0, def.gravity || -28) });
+  g.props = new Map(); g.items = new Map(); g.projs = new Map();
+  g.ropes = []; g.links = []; g.debris = []; g.hazards = []; g.tickers = []; g.breaks = [];
+  g.nextObj = 1; g.time = 0;
+  const spawns = [];
+  def.build(g.mapContext(spawns, n));
+  const shapes = [...g.props.values()].map(b => {
+    const u = b.getUserData(), p = b.getPosition();
+    return Object.assign({}, u.desc, { x: r2(p.x), y: r2(p.y), a: r2(b.getAngle()) });
+  });
+  const data = {
+    name, W: g.W, H: g.H, sky: def.sky, dark: !!def.dark, shapes,
+    ropes: g.ropes.map(r => [r2(r.ax), r2(r.ay), r.body.getUserData().id, r.lx, r.ly]),
+  };
+  previewCache.set(name, data);
+  return data;
+}
+
+module.exports = { Game, DT, mapPreview };

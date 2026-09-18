@@ -453,13 +453,16 @@ const maps = [
       const container = (x, y, i) => m.rect(x, y + 0.9, 4.4, 1.8, { dynamic: true, density: 1.6, color: colors[i % 4] });
       container(X(0.1), 3, 0); container(X(0.1), 4.85, 1); container(X(0.25), 3, 2);
       container(X(0.75), 3, 3); container(X(0.9), 3, 0); container(X(0.9), 4.85, 2);
-      // crane in the harbour gap with a container on two ropes
-      m.wall(W / 2, 0, H - 2, 0.9, { color: '#5d4b2c' });
+      // crane in the harbour gap with a container on two ropes; the mast has a gap you can walk through
+      m.wall(W / 2, 0, 8.4, 0.9, { color: '#5d4b2c' });
+      m.wall(W / 2, 11.6, H - 2, 0.9, { color: '#5d4b2c' });
       m.floor(X(0.32), X(0.68), H - 1.4, 0.6, { color: '#5d4b2c' });
       const hang = m.rect(X(0.36), H - 9, 4.4, 1.8, { dynamic: true, density: 1.2, color: colors[1], angularDamping: 1 });
       m.rope(X(0.36) - 1.5, H - 1.7, hang, -1.8, 0.9); m.rope(X(0.36) + 1.5, H - 1.7, hang, 1.8, 0.9);
       hang.setLinearVelocity(V(3, 0));
-      m.floor(X(0.44), X(0.49), 10, 0.4); m.floor(X(0.51), X(0.56), 10, 0.4);
+      // stepping stones across the water: 3 m up each time, wide enough to land on
+      m.floor(X(0.28), X(0.38), 5.8, 0.5, { color: '#5d4b2c' }); m.floor(X(0.62), X(0.72), 5.8, 0.5, { color: '#5d4b2c' });
+      m.floor(X(0.4), X(0.5), 8.6, 0.5, { color: '#5d4b2c' }); m.floor(X(0.5), X(0.6), 8.6, 0.5, { color: '#5d4b2c' });
       m.spawnRow(X(0.03), X(0.34), 3); m.spawnRow(X(0.66), X(0.97), 3);
     },
   },
@@ -523,15 +526,22 @@ const maps = [
       const { X, H } = m;
       const wood = '#3b2f25', leaf = { color: '#2e3b2a' };
       m.floor(X(0.03), X(0.3), 3, 3, leaf); m.floor(X(0.36), X(0.64), 3, 3, leaf); m.floor(X(0.7), X(0.97), 3, 3, leaf);
-      // trunks with branch platforms
-      for (const [fx, from] of [[0.14, 3], [0.5, 8], [0.86, 3]]) {
+      // trunks with branch platforms: the lowest branch is one jump off the ground and every
+      // branch above sits 3 m higher on the other side, so you can climb a tree by zig-zagging
+      for (const fx of [0.14, 0.5, 0.86]) {
         const x = X(fx);
-        m.wall(x, from, H - 2, 0.9, { color: wood });
-        for (const [dy, side, len] of [[6, -1, 4], [10, 1, 4.5], [14, -1, 3.5], [17.5, 1, 3]]) {
-          const y = from === 3 ? dy + 2 : dy + 1;
-          if (y > H - 3) continue;
-          m.floor(side < 0 ? x - 0.45 - len : x + 0.45, side < 0 ? x - 0.45 : x + 0.45 + len, y, 0.45, { color: wood, hp: 160 });
+        const crown = Math.min(H - 4, 15.4);
+        // the trunk starts above head height: you can always walk along the forest floor
+        m.wall(x, 5.5, crown, 0.9, { color: wood });
+        // branches on both sides every 3 m, so you can climb either side of the trunk
+        for (const y of [6, 9, 12]) {
+          if (y > crown - 1) continue;
+          const len = 5 - (y - 6) * 0.15;
+          m.floor(x - 0.45 - len, x - 0.45, y, 0.45, { color: wood, hp: 160 });
+          m.floor(x + 0.45, x + 0.45 + len, y, 0.45, { color: wood, hp: 160 });
         }
+        // the crown sits on top of the trunk: the only place where you can change sides
+        m.floor(x - 4.5, x + 4.5, crown + 0.4, 0.5, { color: '#2e3b2a', hp: 200 });
       }
       for (const fx of [0.25, 0.42, 0.58, 0.75]) m.rect(X(fx), 3.35, 3.4, 0.7, { dynamic: true, density: 1.5, color: '#4a3a2b', hp: 60 });
       m.spawnRow(X(0.04), X(0.12), 3); m.spawnRow(X(0.18), X(0.29), 3); m.spawnRow(X(0.38), X(0.62), 3); m.spawnRow(X(0.72), X(0.84), 3); m.spawnRow(X(0.88), X(0.96), 3);

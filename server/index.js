@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
-const { Game, DT } = require('./game');
+const { Game, DT, mapPreview } = require('./game');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -59,6 +59,11 @@ wss.on('connection', (ws) => {
       return;
     }
     if (msg.t === 'ping') return ws.send(JSON.stringify({ t: 'pong', c: msg.c }));
+    if (msg.t === 'preview') {
+      const data = mapPreview(String(msg.map || ''));
+      if (data) ws.send(JSON.stringify({ t: 'preview', data }));
+      return;
+    }
     if (msg.t === 'rooms') {
       const list = [...rooms.values()].filter(g => g.players.size > 0).map(g => ({
         code: g.code, map: g.mapDef ? g.mapDef.name : '', players: [...g.players.values()].map(p => [p.name, p.color, p.score]),
