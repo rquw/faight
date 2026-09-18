@@ -486,7 +486,7 @@ function aimPoint() {
   if (!touchMode) return screenToWorld(mouseX, mouseY);
   if (!myPos) return { x: map.W / 2, y: map.H / 2 };
   const d = touch.tapDir || touch.aimDir || { x: touch.face, y: 0 };
-  return { x: myPos.x + d.x * 6, y: myPos.y + d.y * 6 };
+  return { x: myPos.x + d.x * 12, y: myPos.y + d.y * 12 };
 }
 
 function sendInput() {
@@ -497,28 +497,33 @@ function sendInput() {
   lastSent = str;
   ws.send(str);
 }
-setInterval(sendInput, 33);
+// holding the aim stick still is also an input change (auto weapons start firing), so re-evaluate
+setInterval(() => { if (touchMode && (touch.aim || touch.move)) updateTouchKeys(); else sendInput(); }, 33);
 
-// ---------------------------------------------------------------- touch controls (Brawl Stars style)
-// left: floating move stick (down = duck / fast fall), right: attack stick (drag = aim + fire,
-// back to center = cancel, quick tap = shoot at the nearest enemy), plus jump and drop buttons
+// ---------------------------------------------------------------- touch controls
+// Left thumb: floating move stick - drag left/right to walk, down to crouch / fast fall,
+// flick up to jump. Right thumb: floating aim stick - drag to aim (the shot is drawn before you
+// take it), let go to fire. Automatic weapons keep firing while the stick is held out, a quick tap
+// snaps to the closest enemy. Both sticks appear wherever the thumb lands, never at a fixed spot.
 let touchMode = false, myPos = null, livePlayers = [];
-const touch = { move: null, attack: null, jump: null, drop: null, aimDir: null, tapDir: null, face: 1 };
+const AUTO_W = { ar: 1, minigun: 1 };
+const touch = { move: null, aim: null, jump: null, drop: null, aimDir: null, tapDir: null, face: 1, aimPull: 0, flick: true, firing: false };
+dbg.touch = touch; dbg.keys = keys;
 const touchLayer = document.createElement('div');
 touchLayer.id = 'touch';
 touchLayer.hidden = true;
 document.body.insertBefore(touchLayer, $('hud'));
+const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch {} };
 
 function touchLayout() {
-  const R = Math.max(48, Math.min(86, Math.min(W, H) * 0.14));
-  const m = Math.max(18, R * 0.35);
-  const attack = { x: W - m - R * 1.15, y: H - m - R * 1.15, r: R };
+  const R = Math.max(50, Math.min(94, Math.min(W, H) * 0.155));
+  const m = Math.max(16, R * 0.32);
   return {
     R,
-    attack,
-    jump: { x: attack.x - R * 2.35, y: H - m - R * 0.7, r: R * 0.62 },
-    drop: { x: attack.x + R * 0.1, y: attack.y - R * 2.2, r: R * 0.42 },
-    moveHint: { x: m + R * 1.25, y: H - m - R * 1.15, r: R },
+    moveHint: { x: m + R, y: H - m - R, r: R },
+    aimHint: { x: W - m - R, y: H - m - R, r: R },
+    jump: { x: m + R * 0.5, y: H - m - R * 2.35, r: R * 0.6 },     // left thumb, above the move stick
+    drop: { x: W - m - R * 0.5, y: H - m - R * 2.35, r: R * 0.5 }, // right thumb, above the aim stick
   };
 }
 const inCircle = (t, c, k = 1) => Math.hypot(t.clientX - c.x, t.clientY - c.y) <= c.r * k;
@@ -540,10 +545,10 @@ touchLayer.addEventListener('touchstart', (e) => {
   const L = touchLayout();
   for (const t of e.changedTouches) {
     const p = { id: t.identifier, x: t.clientX, y: t.clientY, sx: t.clientX, sy: t.clientY, t0: performance.now() };
-    if (!touch.jump && inCircle(t, L.jump, 1.3)) { touch.jump = p; keys.j = 1; }
+    if (!touch.jump && inCircle(t, L.jump, 1.3)) { touch.jump = p; keys.j = 1; buzz(8); }
     else if (!touch.drop && inCircle(t, L.drop, 1.35)) { touch.drop = p; keys.th = 1; }
-    else if (!touch.attack && (inCircle(t, L.attack, 1.7) || (t.clientX > W * 0.6 && t.clientY > H * 0.35))) { p.sx = L.attack.x; p.sy = L.attack.y; touch.attack = p; }
-    else if (!touch.move && t.clientX < W * 0.5) touch.move = p;
+    else if (!touch.aim && t.clientX > W * 0.45) touch.aim = p;
+    else if (!touch.move) touch.move = p;
   }
   updateTouchKeys();
 }, { passive: false });
@@ -551,7 +556,7 @@ touchLayer.addEventListener('touchstart', (e) => {
 touchLayer.addEventListener('touchmove', (e) => {
   e.preventDefault();
   for (const t of e.changedTouches) {
-    for (const k of ['move', 'attack', 'jump', 'drop']) {
+    for (const k of ['move', 'aim', 'jump', 'drop']) {
       if (touch[k] && touch[k].id === t.identifier) { touch[k].x = t.clientX; touch[k].y = t.clientY; }
     }
   }
@@ -560,22 +565,34 @@ touchLayer.addEventListener('touchmove', (e) => {
 
 function endTouch(e) {
   e.preventDefault();
+  const R = touchLayout().R;
   for (const t of e.changedTouches) {
     if (touch.jump && touch.jump.id === t.identifier) { touch.jump = null; keys.j = 0; }
     if (touch.drop && touch.drop.id === t.identifier) { touch.drop = null; keys.th = 0; }
-    if (touch.move && touch.move.id === t.identifier) touch.move = null;
-    if (touch.attack && touch.attack.id === t.identifier) {
-      const a = touch.attack, R = touchLayout().R;
-      const quick = performance.now() - a.t0 < 250 && Math.hypot(a.x - a.sx, a.y - a.sy) < R * 0.35;
-      touch.attack = null;
-      touch.aimDir = null;
-      if (quick) tapShoot();
+    if (touch.move && touch.move.id === t.identifier) { touch.move = null; touch.flick = true; }
+    if (touch.aim && touch.aim.id === t.identifier) {
+      const a = touch.aim, len = Math.hypot(a.x - a.sx, a.y - a.sy);
+      const quick = performance.now() - a.t0 < 220 && len < R * 0.3;
+      const dir = touch.aimDir, wasFiring = touch.firing;
+      touch.aim = null; touch.aimDir = null; touch.aimPull = 0; touch.firing = false;
+      keys.s = 0;
+      if (quick) tapShoot();                                  // tap: shoot at whoever is closest
+      else if (dir && !wasFiring) fireOnce(dir);              // let go of the stick: take the shot
+      else sendInput();
     }
   }
   updateTouchKeys();
 }
 touchLayer.addEventListener('touchend', endTouch, { passive: false });
 touchLayer.addEventListener('touchcancel', endTouch, { passive: false });
+
+// one shot in the direction you were aiming; the aim is held while the shot goes out
+function fireOnce(dir) {
+  touch.tapDir = dir;
+  keys.s = 1; sendInput();
+  buzz(12);
+  setTimeout(() => { keys.s = touch.aim ? keys.s : 0; touch.tapDir = null; sendInput(); }, 110);
+}
 
 function tapShoot() {
   let best = null, bd = Infinity;
@@ -586,89 +603,127 @@ function tapShoot() {
   }
   if (best) {
     const dx = best[9] / 100 - myPos.x, dy = best[10] / 100 + 0.15 - myPos.y, l = Math.hypot(dx, dy) || 1;
-    touch.tapDir = { x: dx / l, y: dy / l };
-  } else touch.tapDir = { x: touch.face, y: 0 };
-  keys.s = 1; sendInput();
-  setTimeout(() => { keys.s = touch.attack ? keys.s : 0; touch.tapDir = null; sendInput(); }, 90);
+    fireOnce({ x: dx / l, y: dy / l });
+  } else fireOnce({ x: touch.face, y: 0 });
+}
+
+// gentle aim assist: pull the aim onto an enemy that is already close to where you point
+function aimAssist(dir) {
+  if (!myPos) return dir;
+  let best = null, bestA = 0.22;
+  for (const p of livePlayers) {
+    if (p[0] === myId || !p[1]) continue;
+    const dx = p[9] / 100 - myPos.x, dy = p[10] / 100 + 0.15 - myPos.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 0.8 || d > 34) continue;
+    const ang = Math.abs(Math.atan2(dx * dir.y - dy * dir.x, dx * dir.x + dy * dir.y));
+    if (ang < bestA) { bestA = ang; best = { x: dx / d, y: dy / d }; }
+  }
+  if (!best) return dir;
+  const k = 0.75 * (1 - bestA / 0.22);
+  const x = dir.x + (best.x - dir.x) * k, y = dir.y + (best.y - dir.y) * k;
+  const l = Math.hypot(x, y) || 1;
+  return { x: x / l, y: y / l };
 }
 
 function updateTouchKeys() {
   const R = touchLayout().R;
   keys.l = keys.r = keys.d = 0;
-  if (touch.move) {
-    const dx = (touch.move.x - touch.move.sx) / R, dy = (touch.move.y - touch.move.sy) / R;
-    if (dx < -0.3) keys.l = 1;
-    if (dx > 0.3) keys.r = 1;
-    if (dy > 0.6) keys.d = 1;
-    if (Math.abs(dx) > 0.3) touch.face = Math.sign(dx);
+  const mv = touch.move;
+  if (mv) {
+    const dx = (mv.x - mv.sx) / R, dy = (mv.y - mv.sy) / R;
+    if (dx < -0.28) keys.l = 1;
+    if (dx > 0.28) keys.r = 1;
+    if (dy > 0.55) keys.d = 1;
+    if (Math.abs(dx) > 0.28) touch.face = Math.sign(dx);
+    // flick the move stick up to jump (so you can jump while walking and aiming)
+    if (dy < -0.6 && touch.flick) { touch.flick = false; keys.j = 1; buzz(8); setTimeout(() => { if (!touch.jump) { keys.j = 0; sendInput(); } }, 120); }
+    if (dy > -0.3) touch.flick = true;
   }
-  if (touch.attack) {
-    const dx = touch.attack.x - touch.attack.sx, dy = touch.attack.y - touch.attack.sy, l = Math.hypot(dx, dy);
-    if (l > R * 0.3) {
-      touch.aimDir = { x: dx / l, y: -dy / l };
-      touch.face = Math.sign(dx) || touch.face;
-      keys.s = 1;
-    } else { touch.aimDir = null; keys.s = 0; }
+  const a = touch.aim;
+  if (a) {
+    const dx = a.x - a.sx, dy = a.y - a.sy, l = Math.hypot(dx, dy);
+    if (l > R * 0.2) {
+      touch.aimDir = aimAssist({ x: dx / l, y: -dy / l });
+      touch.face = Math.sign(touch.aimDir.x) || touch.face;
+      touch.aimPull = Math.min(1, l / R);
+      // automatic weapons spray while you keep holding the stick out
+      const auto = myPos && AUTO_W[WEAPONS[myPos.w]];
+      touch.firing = !!(auto && performance.now() - a.t0 > 240);
+      keys.s = touch.firing ? 1 : 0;
+    } else { touch.aimDir = null; touch.aimPull = 0; touch.firing = false; keys.s = 0; }
   } else if (!touch.tapDir) keys.s = 0;
   sendInput();
 }
 
-function drawTouchUI() {
+function drawTouchUI(time) {
   const L = touchLayout(), R = L.R;
-  const ring = (x, y, r, fill, stroke) => {
+  const ring = (x, y, r, fill, stroke, w = 3) => {
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
     if (fill) { ctx.fillStyle = fill; ctx.fill(); }
-    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.stroke(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = w; ctx.stroke(); }
   };
   const myColor = colorOf(myId);
-  // aim guide from the player
-  if (myPos && myPos.alive && touch.aimDir) {
-    const px = sx(myPos.x), py = sy(myPos.y);
+  // where the shot will go: the sniper draws its own laser and the grenade its arc
+  if (myPos && myPos.alive && touch.aimDir && myPos.w !== 3 && myPos.w !== 6) {
+    const dir = touch.aimDir;
+    const from = { x: myPos.x + dir.x * 0.8, y: myPos.y + dir.y * 0.8 };
+    const len = myPos.armed ? rayLevel(from.x, from.y, dir.x, dir.y, 60) : 1.6;
+    const ex = from.x + dir.x * len, ey = from.y + dir.y * len;
     ctx.save();
-    ctx.setLineDash([10, 9]); ctx.lineWidth = 4; ctx.lineCap = 'round';
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.beginPath(); ctx.moveTo(px + touch.aimDir.x * cam.s, py - touch.aimDir.y * cam.s);
-    ctx.lineTo(px + touch.aimDir.x * cam.s * 7, py - touch.aimDir.y * cam.s * 7); ctx.stroke();
+    ctx.setLineDash([9, 8]); ctx.lineDashOffset = -time * 40;
+    ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.strokeStyle = myPos.armed ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.4)';
+    ctx.beginPath(); ctx.moveTo(sx(from.x), sy(from.y)); ctx.lineTo(sx(ex), sy(ey)); ctx.stroke();
     ctx.restore();
+    if (myPos.armed) {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.arc(sx(ex), sy(ey), Math.max(3, 0.1 * cam.s), 0, 7); ctx.fill();
+    }
   }
   // move stick
-  const mv = touch.move;
-  const mb = mv ? { x: mv.sx, y: mv.sy } : L.moveHint;
-  ring(mb.x, mb.y, R, 'rgba(0,0,0,0.22)', 'rgba(255,255,255,0.35)');
+  const mb = touch.move ? { x: touch.move.sx, y: touch.move.sy } : L.moveHint;
+  ring(mb.x, mb.y, R, 'rgba(0,0,0,0.2)', 'rgba(255,255,255,0.3)');
   let kx = mb.x, ky = mb.y;
-  if (mv) { const dx = mv.x - mv.sx, dy = mv.y - mv.sy, l = Math.hypot(dx, dy), k = l > R ? R / l : 1; kx += dx * k; ky += dy * k; }
-  ring(kx, ky, R * 0.45, 'rgba(255,255,255,0.55)');
-  // attack stick
-  const at = touch.attack;
-  ring(L.attack.x, L.attack.y, R, at ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.22)', 'rgba(255,255,255,0.35)');
-  let ax = L.attack.x, ay = L.attack.y;
-  if (at) { const dx = at.x - at.sx, dy = at.y - at.sy, l = Math.hypot(dx, dy), k = l > R ? R / l : 1; ax += dx * k; ay += dy * k; }
-  ring(ax, ay, R * 0.48, myColor, 'rgba(0,0,0,0.35)');
-  if (myPos && myPos.armed) {
-    ctx.fillStyle = '#111'; ctx.font = `900 ${Math.round(R * 0.32)}px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(myPos.ammo, ax, ay);
-    ctx.textBaseline = 'alphabetic';
-  } else {
-    // fist
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.beginPath(); ctx.arc(ax, ay, R * 0.16, 0, 7); ctx.fill();
+  if (touch.move) { const dx = touch.move.x - mb.x, dy = touch.move.y - mb.y, l = Math.hypot(dx, dy), k = l > R ? R / l : 1; kx += dx * k; ky += dy * k; }
+  ring(kx, ky, R * 0.42, 'rgba(255,255,255,0.5)');
+  if (!touch.move) {
+    ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = `700 ${Math.round(R * 0.2)}px Arial, sans-serif`;
+    ctx.textAlign = 'center'; ctx.fillText('MOVE', mb.x, mb.y + R * 0.07);
   }
-  // jump
-  ring(L.jump.x, L.jump.y, L.jump.r, touch.jump ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.25)', 'rgba(255,255,255,0.5)');
+  // aim stick
+  const ab = touch.aim ? { x: touch.aim.sx, y: touch.aim.sy } : L.aimHint;
+  ring(ab.x, ab.y, R, touch.aim ? 'rgba(0,0,0,0.28)' : 'rgba(0,0,0,0.2)', touch.firing ? 'rgba(255,90,70,0.9)' : 'rgba(255,255,255,0.3)');
+  let ax = ab.x, ay = ab.y;
+  if (touch.aim) { const dx = touch.aim.x - ab.x, dy = touch.aim.y - ab.y, l = Math.hypot(dx, dy), k = l > R ? R / l : 1; ax += dx * k; ay += dy * k; }
+  ring(ax, ay, R * 0.44, touch.firing ? '#ff6b5e' : myColor, 'rgba(0,0,0,0.35)');
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (myPos && myPos.armed) {
+    ctx.fillStyle = '#111'; ctx.font = `900 ${Math.round(R * 0.3)}px Arial, sans-serif`;
+    ctx.fillText(myPos.ammo, ax, ay);
+  } else {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath(); ctx.arc(ax, ay, R * 0.15, 0, 7); ctx.fill();
+  }
+  if (!touch.aim) {
+    ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = `700 ${Math.round(R * 0.2)}px Arial, sans-serif`;
+    ctx.fillText('AIM', ab.x, ab.y + R * 0.72);
+  }
+  // jump (left) and drop (right)
+  ring(L.jump.x, L.jump.y, L.jump.r, touch.jump ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.25)', 'rgba(255,255,255,0.45)');
   ctx.fillStyle = '#fff';
-  const jr = L.jump.r * 0.42;
-  ctx.beginPath(); ctx.moveTo(L.jump.x, L.jump.y - jr); ctx.lineTo(L.jump.x + jr, L.jump.y + jr * 0.5); ctx.lineTo(L.jump.x - jr, L.jump.y + jr * 0.5); ctx.fill();
-  // drop / throw weapon
+  const jr = L.jump.r * 0.4;
+  ctx.beginPath(); ctx.moveTo(L.jump.x, L.jump.y - jr * 1.15); ctx.lineTo(L.jump.x + jr, L.jump.y + jr * 0.55); ctx.lineTo(L.jump.x - jr, L.jump.y + jr * 0.55); ctx.fill();
   const canDrop = myPos && myPos.armed;
-  ctx.globalAlpha = canDrop ? 1 : 0.4;
-  ring(L.drop.x, L.drop.y, L.drop.r, touch.drop ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.25)', 'rgba(255,255,255,0.5)');
-  ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(L.drop.r * 0.42)}px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('DROP', L.drop.x, L.drop.y + 1);
-  ctx.textBaseline = 'alphabetic';
+  ctx.globalAlpha = canDrop ? 1 : 0.35;
+  ring(L.drop.x, L.drop.y, L.drop.r, touch.drop ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.25)', 'rgba(255,255,255,0.45)');
+  ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(L.drop.r * 0.38)}px Arial, sans-serif`;
+  ctx.fillText('DROP', L.drop.x, L.drop.y);
   ctx.globalAlpha = 1;
+  ctx.textBaseline = 'alphabetic';
   // portrait hint
   if (H > W) {
-    ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = '800 22px Arial, sans-serif';
     ctx.fillText('Hold your phone sideways', W / 2, H / 2);
   }
@@ -1427,7 +1482,7 @@ function render(nowMs) {
   livePlayers = players;
   dbg.rtt = rtt; dbg.interp = INTERP;
   const meRow = players.find(p => p[0] === myId);
-  myPos = meRow ? { x: meRow[9] / 100, y: meRow[10] / 100 + 0.15, alive: meRow[1], armed: meRow[3] >= 0, ammo: meRow[4] } : null;
+  myPos = meRow ? { x: meRow[9] / 100, y: meRow[10] / 100 + 0.15, alive: meRow[1], armed: meRow[3] >= 0, ammo: meRow[4], w: meRow[3] } : null;
   dbg.pos = myPos;
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1687,7 +1742,7 @@ function render(nowMs) {
     ctx.fillRect(0, 0, W, H);
   }
 
-  if (myId && touchMode) { drawTouchUI(); return; }
+  if (myId && touchMode) { drawTouchUI(time); return; }
   // crosshair + ammo
   if (myId) {
     const me = players.find(p => p[0] === myId);
