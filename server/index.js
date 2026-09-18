@@ -25,6 +25,34 @@ const server = http.createServer((req, res) => {
 });
 
 const rooms = new Map();
+const MAX_ROOMS = 5, MAX_PLAYERS = 20, MAX_PUBLIC = 4;   // at least one slot stays open for a private room
+const waiting = [];                                      // sockets queued for a free room
+
+const publicCount = () => [...rooms.values()].filter(r => r.isPublic).length;
+
+function roomCards() {
+  return [...rooms.values()].filter(g => g.players.size > 0).map(g => ({
+    rid: g.rid, code: g.isPublic ? g.code : null, pub: !!g.isPublic,
+    map: g.mapDef ? g.mapDef.name : '', max: MAX_PLAYERS,
+    players: [...g.players.values()].map(p => [p.name, p.color, p.score]),
+  }));
+}
+
+function sendQueue() {
+  waiting.forEach((w, i) => {
+    if (w.ws.readyState === 1) w.ws.send(JSON.stringify({ t: 'queue', pos: i + 1, of: Math.max(waiting.length, MAX_ROOMS), rooms: MAX_ROOMS }));
+  });
+}
+
+// a room died: let the next one in line create theirs
+function pumpQueue() {
+  while (waiting.length && rooms.size < MAX_ROOMS) {
+    const w = waiting.shift();
+    if (w.ws.readyState !== 1) continue;
+    w.ws.send(JSON.stringify({ t: 'queueReady' }));
+  }
+  sendQueue();
+}
 
 function newCode() {
   for (let i = 0; i < 1000; i++) {
@@ -55,7 +83,7 @@ wss.on('connection', (ws) => {
     if (msg.t === 'queue' && player) return room.queueMap(player, msg.map);
     if (msg.t === 'chat' && player) return room.chat(player, msg.text);
     if (msg.t === 'bot' && player && player.name.toLowerCase() === 'fabiolul') {
-      if (room.players.size < 32) room.addBot();
+      if (room.players.size < MAX_PLAYERS) room.addBot();
       return;
     }
     if (msg.t === 'ping') return ws.send(JSON.stringify({ t: 'pong', c: msg.c }));
@@ -64,26 +92,65 @@ wss.on('connection', (ws) => {
       if (data) ws.send(JSON.stringify({ t: 'preview', data }));
       return;
     }
-    if (msg.t === 'rooms') {
-      const list = [...rooms.values()].filter(g => g.players.size > 0).map(g => ({
-        code: g.code, map: g.mapDef ? g.mapDef.name : '', players: [...g.players.values()].map(p => [p.name, p.color, p.score]),
-      }));
-      return ws.send(JSON.stringify({ t: 'rooms', list }));
-    }
+    if (msg.t === 'rooms') return ws.send(JSON.stringify({ t: 'rooms', list: roomCards(), max: MAX_ROOMS, cap: MAX_PLAYERS }));
     if ((msg.t === 'create' || msg.t === 'join') && !player) {
       if (msg.t === 'create') {
+        const wantPublic = msg.vis !== 'private';
+        if (rooms.size >= MAX_ROOMS) {
+          if (!waiting.some(w => w.ws === ws)) waiting.push({ ws, vis: msg.vis, name: msg.name });
+          return sendQueue();
+        }
+        if (wantPublic && publicCount() >= MAX_PUBLIC) {
+          return ws.send(JSON.stringify({ t: 'err', m: 'All ' + MAX_PUBLIC + ' public rooms are taken - make a private one' }));
+        }
         const code = newCode();
         if (!code) return ws.send(JSON.stringify({ t: 'err', m: 'Server full' }));
         room = new Game(code);
+        room.isPublic = wantPublic;
+        room.rid = Math.random().toString(36).slice(2, 8);
+        room.knocks = new Map();
         rooms.set(code, room);
       } else {
         room = rooms.get(String(msg.code || '').trim());
         if (!room) return ws.send(JSON.stringify({ t: 'err', m: 'Room not found' }));
+        if (room.players.size >= MAX_PLAYERS) { room = null; return ws.send(JSON.stringify({ t: 'err', m: 'Room is full (' + MAX_PLAYERS + '/' + MAX_PLAYERS + ')' })); }
+        if (!room.isPublic && room.players.size && !(room.invites && room.invites.has(ws))) {
+          room = null;
+          return ws.send(JSON.stringify({ t: 'err', m: 'This room is private - ask the host to let you in' }));
+        }
       }
+      const i = waiting.findIndex(w => w.ws === ws);
+      if (i >= 0) { waiting.splice(i, 1); sendQueue(); }
       player = room.addPlayer(ws, msg.name);
+    }
+    // knocking on a private room: the host gets a request they can accept or turn down
+    if (msg.t === 'knock' && !player) {
+      const g = [...rooms.values()].find(r => r.rid === msg.rid);
+      if (!g) return ws.send(JSON.stringify({ t: 'err', m: 'Room not found' }));
+      if (g.players.size >= MAX_PLAYERS) return ws.send(JSON.stringify({ t: 'err', m: 'Room is full (' + MAX_PLAYERS + '/' + MAX_PLAYERS + ')' }));
+      const host = g.players.get(g.hostId);
+      if (!host) return ws.send(JSON.stringify({ t: 'err', m: 'Room not found' }));
+      const kid = String(g.nextKnock = (g.nextKnock || 0) + 1);
+      const who = String(msg.name || 'Stick').slice(0, 14);
+      g.knocks.set(kid, { ws, name: who });
+      host.ws.send(JSON.stringify({ t: 'knock', id: kid, name: who }));
+      return ws.send(JSON.stringify({ t: 'knocked' }));
+    }
+    if (msg.t === 'knockAnswer' && player && room && player.id === room.hostId) {
+      const k = room.knocks && room.knocks.get(String(msg.id));
+      if (!k) return;
+      room.knocks.delete(String(msg.id));
+      if (k.ws.readyState !== 1) return;
+      if (msg.ok) {
+        (room.invites = room.invites || new Set()).add(k.ws);
+        k.ws.send(JSON.stringify({ t: 'invite', code: room.code }));
+      } else k.ws.send(JSON.stringify({ t: 'knockDenied' }));
+      return;
     }
   });
   ws.on('close', () => {
+    const i = waiting.findIndex(w => w.ws === ws);
+    if (i >= 0) { waiting.splice(i, 1); sendQueue(); }
     if (room && player) {
       room.removePlayer(player);
       if (room.players.size === 0) room.emptySince = Date.now();
@@ -110,7 +177,8 @@ setInterval(() => {
     acc -= DT;
     for (const [code, g] of rooms) {
       if (g.players.size === 0 || ![...g.players.values()].some(p => !p.bot)) {
-        if (Date.now() - g.emptySince > 60000) rooms.delete(code);
+        // empty rooms are kept a minute so people can come back - unless somebody is queued
+        if (Date.now() - g.emptySince > (waiting.length ? 8000 : 60000)) { rooms.delete(code); pumpQueue(); }
         continue;
       }
       try { g.tick(); } catch (e) { console.error('tick error', code, e); g.startRound(); }

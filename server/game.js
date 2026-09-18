@@ -238,10 +238,18 @@ class Game {
       return ok;
     };
     const added = [];
+    const MAX_STEPS = 14;                  // keep maps readable: only the worst climbs get a step
     for (let pass = 0; pass < 5; pass++) {
       const surf = surfaces();
       let placed = 0;
-      for (const s of surf) {
+      // hardest climbs first, so the budget goes where it matters
+      const ranked = surf.map(s => {
+        let low = Infinity;
+        for (const t of surf) if (t !== s && t.y < s.y - 0.3) low = Math.min(low, s.y - t.y);
+        return { s, rise: low };
+      }).sort((a, b) => b.rise - a.rise).map(r => r.s);
+      for (const s of ranked) {
+        if (added.length >= MAX_STEPS) break;
         // the easiest existing way up onto this ledge
         let best = null;
         for (const t of surf) {

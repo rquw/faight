@@ -17,12 +17,16 @@
   <div class="card">
     <h1 class="logo">f<span>aight</span></h1>
     <input id="name" maxlength="14" placeholder="Name" autocomplete="off" spellcheck="false">
-    <button id="create" class="primary">Create room</button>
+    <div class="row">
+      <button id="create" class="primary">Create room</button>
+      <div class="seg"><button id="vis-public" class="on">Public</button><button id="vis-private">Private</button></div>
+    </div>
     <div class="row">
       <input id="code" maxlength="4" inputmode="numeric" placeholder="Code" autocomplete="off">
       <button id="join">Join</button>
     </div>
     <p id="err"></p>
+    <div id="lobby"></div>
     <p class="mobile-hint">Hold your phone sideways · left to move · right to aim &amp; shoot</p>
     <div class="keys">
       <span><b>A</b><b>D</b> move</span>
@@ -31,7 +35,23 @@
       <span><b>Mouse</b> aim · shoot</span>
       <span><b>Q</b> throw weapon</span>
     </div>
-    <div id="version"></div>
+    <div class="bottom-row">
+      <button id="info" title="How to play">i</button>
+      <div id="version"></div>
+    </div>
+    <div id="howto">
+      <b>How to play</b>
+      <p>Faight is an infinite, round based 2D brawler for people who want to play with their friends
+      during school without any risk. Up to 20 players share a room. Your goal is simple: be the last
+      one standing — punch the others to death or shoot them with the weapons that keep falling from
+      the sky. Every round starts over on a new map, so you can tab out whenever a teacher walks past
+      and nothing is lost.</p>
+      <p>Move with <b>A</b> and <b>D</b>, jump with <b>Space</b> (you get a second jump in mid air),
+      crouch or drop faster with <b>S</b>, aim with the mouse, shoot by clicking and throw your weapon
+      with <b>Q</b>. Press <b>Enter</b> to chat.</p>
+      <p>Heads up: the lag can get noticeable, especially with a lot of people online — this runs on a
+      free server because nobody earns anything here. Donations welcome ;)</p>
+    </div>
   </div>
 </div>
 
@@ -63,6 +83,8 @@
 
 <div id="chatbar" hidden><input id="chatin" maxlength="80" placeholder="Message… (Enter to send, Esc to cancel)" autocomplete="off" spellcheck="false"></div>
 <div id="chatlog"></div>
+
+<div id="knocks"></div>
 
 <div id="hud" hidden>
   <div id="room">ROOM <b id="roomcode"></b><button id="copy" title="Copy link">Link</button><button id="maps" title="Pick the next map (L)" hidden>Maps</button><div id="queued"></div><div id="ping"></div></div>

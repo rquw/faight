@@ -37,12 +37,23 @@ const urlCode = (new URLSearchParams(location.search).get('code') || '').replace
 if (urlCode) codeIn.value = urlCode;
 codeIn.addEventListener('input', () => { codeIn.value = codeIn.value.replace(/\D/g, '').slice(0, 4); });
 
+let visibility = 'public';
+function myName() { return nameIn.value.trim() || 'Stick' + Math.floor(Math.random() * 99); }
 function go(kind) {
-  const name = nameIn.value.trim() || 'Stick' + Math.floor(Math.random() * 99);
+  const name = myName();
   try { localStorage.setItem('faight-name', name); } catch {}
   if (kind === 'join' && codeIn.value.length !== 4) { $('err').textContent = 'The code has 4 digits'; return; }
   audio();
-  connect(() => ws.send(JSON.stringify(kind === 'create' ? { t: 'create', name } : { t: 'join', name, code: codeIn.value })));
+  const msg = kind === 'create' ? { t: 'create', name, vis: visibility } : { t: 'join', name, code: codeIn.value };
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+  else connect(() => ws.send(JSON.stringify(msg)));
+}
+for (const v of ['public', 'private']) {
+  $('vis-' + v).onclick = () => {
+    visibility = v;
+    $('vis-public').className = v === 'public' ? 'on' : '';
+    $('vis-private').className = v === 'private' ? 'on' : '';
+  };
 }
 // joining through an invite link: just the name, one OK, straight into the game
 const inviteName = $('invite-name');
@@ -66,6 +77,57 @@ $('invite-back').onclick = () => { $('invite').hidden = true; $('menu').hidden =
 if (urlCode.length === 4) openInvite();
 
 fetch('version').then(r => r.text()).then(v => { $('version').textContent = 'v' + v.trim(); }).catch(() => {});
+
+// lobby on the start screen: public rooms can be joined straight away, private ones need the host
+let lobbyTimer = null;
+function lobbyPoll() {
+  clearInterval(lobbyTimer);
+  const ask = () => {
+    if (myId) return;
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'rooms' }));
+  };
+  if (ws && ws.readyState === 1) ask(); else connect(ask);
+  lobbyTimer = setInterval(ask, 3000);
+}
+function renderLobby(list, max, cap) {
+  const el = $('lobby');
+  el.innerHTML = '';
+  if (!list.length) { el.innerHTML = '<div class="lobby-empty">No open rooms - create one</div>'; return; }
+  for (const r of list) {
+    const card = document.createElement('div');
+    card.className = 'lobby-card';
+    const names = r.players.map(p => p[0]).join(', ');
+    card.innerHTML = `<div class="lc"></div><div class="li"><b></b><span></span></div><button class="lj"></button>`;
+    const code = card.querySelector('.lc');
+    code.textContent = r.pub ? r.code : 'PRIVATE';
+    if (!r.pub) code.className = 'lc priv';
+    card.querySelector('b').textContent = names || '(empty)';
+    card.querySelector('span').textContent = `${r.players.length}/${r.max} · ${r.map || 'starting…'}`;
+    const btn = card.querySelector('.lj');
+    btn.textContent = r.pub ? 'Join' : 'Ask to join';
+    const act = () => {
+      if (r.players.length >= r.max) { $('err').textContent = 'That room is full'; return; }
+      if (r.pub) { codeIn.value = r.code; go('join'); }
+      else {
+        $('err').textContent = 'Asking the host…';
+        const send = () => ws.send(JSON.stringify({ t: 'knock', rid: r.rid, name: myName() }));
+        if (ws && ws.readyState === 1) send(); else connect(send);
+      }
+    };
+    card.onclick = act;
+    btn.onclick = (e) => { e.stopPropagation(); act(); };
+    el.appendChild(card);
+  }
+}
+lobbyPoll();
+
+// how to play: hover the little i (tap toggles it on touch devices)
+const howto = $('howto'), infoBtn = $('info');
+infoBtn.addEventListener('mouseenter', () => howto.classList.add('show'));
+infoBtn.addEventListener('mouseleave', () => howto.classList.remove('show'));
+howto.addEventListener('mouseenter', () => howto.classList.add('show'));
+howto.addEventListener('mouseleave', () => howto.classList.remove('show'));
+infoBtn.addEventListener('click', (e) => { e.preventDefault(); howto.classList.toggle('show'); });
 
 $('create').onclick = () => go('create');
 $('join').onclick = () => go('join');
@@ -255,7 +317,7 @@ function connect(onOpen, attempt = 0) {
       else $('err').textContent = 'Server unreachable';
       return;
     }
-    if (myId) { $('menu').hidden = false; $('hud').hidden = true; touchLayer.hidden = true; $('err').textContent = 'Connection lost'; myId = 0; map = null; }
+    if (myId) { $('menu').hidden = false; $('hud').hidden = true; touchLayer.hidden = true; $('err').textContent = 'Connection lost'; myId = 0; map = null; $('knocks').innerHTML = ''; lobbyPoll(); }
   };
   sock.binaryType = 'arraybuffer';
   sock.onmessage = (ev) => {
@@ -274,7 +336,21 @@ function onMessage(m) {
       $('ping').style.color = rtt < 70 ? '#8ce08c' : rtt < 150 ? '#e8d27a' : '#e8756a';
       break;
     }
-    case 'rooms': if (!$('rooms').hidden) renderRooms(m.list); break;
+    case 'rooms':
+      if (!$('rooms').hidden) renderRooms(m.list);
+      if (!myId) renderLobby(m.list, m.max, m.cap);
+      break;
+    case 'queue':
+      $('err').textContent = `You're in the queue! Position: ${m.pos}/${m.of} (all ${m.rooms} rooms are busy)`;
+      break;
+    case 'queueReady':
+      $('err').textContent = 'A room opened up - starting yours…';
+      go('create');
+      break;
+    case 'knocked': $('err').textContent = 'Request sent - waiting for the host…'; break;
+    case 'knockDenied': $('err').textContent = 'The host said no'; break;
+    case 'invite': $('err').textContent = ''; codeIn.value = m.code; go('join'); break;
+    case 'knock': addKnock(m.id, m.name); break;
     case 'preview': previewCache.set(m.data.name, m.data); drawPreview(m.data); break;
     case 'joined':
       myId = m.id; roomCode = m.code;
@@ -282,6 +358,7 @@ function onMessage(m) {
       mapCats = m.cats || [];
       $('roomcode').textContent = m.code;
       $('menu').hidden = true; $('hud').hidden = false;
+      clearInterval(lobbyTimer);
       touchLayer.hidden = !touchMode;
       history.replaceState(null, '', '?code=' + m.code + location.hash);
       startPing();
@@ -309,6 +386,20 @@ function onMessage(m) {
       break;
     case 'e': for (const e of m.e) pendingEvents.push({ t: m.tm / 1000, e }); break;
   }
+}
+
+// someone wants into your private room
+function addKnock(id, name) {
+  const el = document.createElement('div');
+  el.className = 'knock';
+  el.innerHTML = '<span><b></b> wants to join</span><button class="yes">Let in</button><button class="no">No</button>';
+  el.querySelector('b').textContent = name;
+  const answer = (ok) => { ws.send(JSON.stringify({ t: 'knockAnswer', id, ok })); el.remove(); };
+  el.querySelector('.yes').onclick = () => answer(true);
+  el.querySelector('.no').onclick = () => answer(false);
+  $('knocks').appendChild(el);
+  sfx('chat');
+  setTimeout(() => el.remove(), 30000);
 }
 
 function renderScores() {
@@ -752,7 +843,11 @@ function handleEvent(e) {
       sfx('boom', x);
       break;
     }
-    case 'jump': spawnParticles(e[1], e[2], 4, { dir: Math.PI / 2, spread: 2.5, speed: 1.5, life: 0.35, size: 0.18, color: 'rgba(40,40,40,0.25)', g: 0, drag: 3, kind: 'puff' }); sfx(e[3] ? 'walljump' : 'jump', e[1], null, 'jump' + Math.round(e[1])); break;
+    case 'jump':
+      spawnParticles(e[1], e[2], e[3] === 2 ? 8 : 4, { dir: Math.PI / 2, spread: e[3] === 2 ? 3.1 : 2.5, speed: e[3] === 2 ? 3 : 1.5, life: 0.35, size: 0.18, color: 'rgba(255,255,255,0.35)', g: 0, drag: 3, kind: 'puff' });
+      if (e[3] === 2) rings.push({ x: e[1], y: e[2] + 0.1, r: 0.2, grow: 4.5, life: 0.25, max: 0.25, w: 0.1 });
+      sfx(e[3] === 2 ? 'airjump' : e[3] ? 'walljump' : 'jump', e[1], null, 'jump' + Math.round(e[1]));
+      break;
     case 'bounce': spawnParticles(e[1], e[2], 6, { dir: Math.PI / 2, spread: 2, speed: 5, life: 0.3, size: 0.1, color: '#ffffff', g: 0.5 }); sfx('bounce', e[1]); break;
     case 'thud': hitFlash.set(e[3], 0.08); spawnParticles(e[1], e[2], 6, { speed: 4, life: 0.4, size: 0.1, color: colorOf(e[3]) }); sfx('thud', e[1]); break;
     case 'pick': {
@@ -1757,6 +1852,7 @@ function sfx(name, x, arg, key = name) {
     case 'thump': thump(130 * R(), 45, 0.12, 0.15 + 0.45 * k); noise(0.07, 800 * R(), 1, 0.1 + 0.3 * k, 'lowpass', 200); break;
     case 'jump': noise(0.1, 700, 1.5, 0.1, 'bandpass', 1400, 0.02); break;
     case 'walljump': noise(0.12, 1800, 1, 0.16, 'bandpass', 700); knock(160, 0.2); break;
+    case 'airjump': noise(0.14, 900, 1.5, 0.14, 'bandpass', 2600, 0.02); thump(320, 720, 0.12, 0.12, 'triangle'); break;
     case 'toss': noise(0.18, 400, 2, 0.25, 'bandpass', 1600, 0.04); break;
     // world
     case 'ric': noise(0.07, 3800 * R(), 6, 0.18, 'bandpass', 1800); if (Math.random() < 0.35) { sndDelay = 0.01; thump(2600 * R(), 900, 0.18, 0.05, 'triangle'); } break;

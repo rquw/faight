@@ -28,6 +28,7 @@ const JUMP = 25 * U;
 const RUN_ACCEL = 96;              // m/s² into every part -> 12 m/s top speed with DRAG
 const WORLD_G = 28;
 const COYOTE = 0.3;                // you may still jump this long after walking off a ledge
+const AIR_JUMPS = 1;               // one extra jump in mid air (a coyote jump does not use it up)
 
 class Character {
   constructor(game, player, x, y) {
@@ -58,6 +59,7 @@ class Character {
     this.sinceGrounded = 0;
     this.sinceWall = 1;
     this.sinceFallen = 1;
+    this.airJumps = 0;
     this.lastWallSide = 0;
     this.wallSide = 0;
     this.lastHitBy = null;
@@ -344,9 +346,13 @@ class Character {
       this.lastWallSide = this.wallSide || this.lastWallSide;
     }
 
-    // ---- jump: grounded or on a wall within the coyote window (0.3 s), at most every 0.3 s
-    if (this.jumpBuffer > 0 && !frozen && this.sinceJumped > 0.3 && (this.sinceGrounded < COYOTE || this.sinceWall < COYOTE)) {
-      const wall = this.sinceWall < this.sinceGrounded;
+    // ---- jump: from the ground, from a wall, or one extra jump in mid air.
+    // A jump inside the coyote window still counts as a ground jump, so it never eats the air jump.
+    const fromGround = this.sinceGrounded < COYOTE || this.sinceWall < COYOTE;
+    if (this.grounded || this.wallSide) this.airJumps = 0;
+    if (this.jumpBuffer > 0 && !frozen && this.sinceJumped > 0.3 && (fromGround || this.airJumps < AIR_JUMPS)) {
+      const wall = fromGround && this.sinceWall < this.sinceGrounded;
+      if (!fromGround) this.airJumps++;
       for (const b of this.bodies) {
         const bv = b.getLinearVelocity();
         // off the wall only when steering away from it, otherwise climb straight up
@@ -356,7 +362,7 @@ class Character {
       if (!wall && hit && hit.fixture.getBody().getType() === 'dynamic') hit.fixture.getBody().applyLinearImpulse(V(0, -M * 6), hit.point, true);
       this.airGravity = 0.25;
       this.jumpBuffer = 0; this.sinceJumped = 0; this.sinceGrounded = 1; this.sinceWall = 1;
-      g.event(['jump', r2(hip.getPosition().x), r2(hip.getPosition().y - REST), wall ? 1 : 0]);
+      g.event(['jump', r2(hip.getPosition().x), r2(hip.getPosition().y - REST), wall ? 1 : fromGround ? 0 : 2]);
     }
 
     this.legForces(dt, move, crouch);
