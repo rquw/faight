@@ -113,4 +113,10 @@ setInterval(() => {
   }
 }, 1000 / 120);
 
-server.listen(PORT, () => console.log('faight on http://localhost:' + PORT));
+server.listen(PORT, () => {
+  console.log('faight on http://localhost:' + PORT);
+  // playing in the same room? this address has a ping of 2 ms instead of 60
+  for (const list of Object.values(require('os').networkInterfaces())) {
+    for (const i of list || []) if (i.family === 'IPv4' && !i.internal) console.log('  same wifi:  http://' + i.address + ':' + PORT);
+  }
+});

@@ -341,7 +341,16 @@ function sample() {
   for (let i = snaps.length - 1; i >= 0; i--) {
     if (snaps[i].t <= rt) { a = snaps[i]; b = snaps[i + 1] || snaps[i]; break; }
   }
-  const k = b.t > a.t ? Math.min(1, Math.max(0, (rt - a.t) / (b.t - a.t))) : 0;
+  // if the newest snapshot is older than the render clock (a late packet), keep moving along the
+  // last known direction for up to 0.15 s instead of freezing everything on screen
+  if (a === b && snaps.length > 1 && rt > a.t) {
+    a = snaps[snaps.length - 2]; b = snaps[snaps.length - 1];
+  }
+  let k = 0;
+  if (b.t > a.t) {
+    k = (rt - a.t) / (b.t - a.t);
+    k = Math.max(0, Math.min(1 + 0.15 / (b.t - a.t), k));
+  }
   return { a, b, k, rt };
 }
 
