@@ -27,8 +27,13 @@ const AIR_RAMP = 80 * U;           // extra m/s² per second spent in the air
 const JUMP = 25 * U;
 const RUN_ACCEL = 96;              // m/s² into every part -> 12 m/s top speed with DRAG
 const WORLD_G = 28;
-const COYOTE = 0.3;                // you may still jump this long after walking off a ledge
-const AIR_JUMPS = 1;               // one extra jump in mid air (a coyote jump does not use it up)
+// Stick Fight's own gate (Controller.Jump): jump only if you left ground or wall less than 0.2 s ago,
+// are not currently knocked down, and last jumped more than 0.3 s ago. SFTG has no air jump at all;
+// ours is the one addition, and it uses the 0.3 force factor the game itself uses for forced jumps.
+const COYOTE = 0.2;
+const JUMP_CD = 0.3;
+const AIR_JUMPS = 1;
+const AIR_JUMP_SCALE = 0.55;       // fraction of the jump velocity for the mid air jump
 
 class Character {
   constructor(game, player, x, y) {
@@ -348,16 +353,17 @@ class Character {
 
     // ---- jump: from the ground, from a wall, or one extra jump in mid air.
     // A jump inside the coyote window still counts as a ground jump, so it never eats the air jump.
-    const fromGround = this.sinceGrounded < COYOTE || this.sinceWall < COYOTE;
+    const fromGround = (this.sinceGrounded < COYOTE || this.sinceWall < COYOTE) && this.sinceFallen > 0.15;
     if (this.grounded || this.wallSide) this.airJumps = 0;
-    if (this.jumpBuffer > 0 && !frozen && this.sinceJumped > 0.3 && (fromGround || this.airJumps < AIR_JUMPS)) {
+    if (this.jumpBuffer > 0 && !frozen && this.sinceJumped > JUMP_CD && (fromGround || this.airJumps < AIR_JUMPS)) {
       const wall = fromGround && this.sinceWall < this.sinceGrounded;
       if (!fromGround) this.airJumps++;
+      const power = fromGround ? 1 : AIR_JUMP_SCALE;
       for (const b of this.bodies) {
         const bv = b.getLinearVelocity();
         // off the wall only when steering away from it, otherwise climb straight up
         if (wall) b.setLinearVelocity(V(move === -this.lastWallSide ? bv.x - this.lastWallSide * JUMP * 0.75 : bv.x * 0.3 + this.lastWallSide * 1.5, JUMP * 0.85));
-        else b.setLinearVelocity(V(bv.x, JUMP + Math.max(0, gvy)));
+        else b.setLinearVelocity(V(bv.x, JUMP * power + (fromGround ? Math.max(0, gvy) : 0)));
       }
       if (!wall && hit && hit.fixture.getBody().getType() === 'dynamic') hit.fixture.getBody().applyLinearImpulse(V(0, -M * 6), hit.point, true);
       this.airGravity = 0.25;

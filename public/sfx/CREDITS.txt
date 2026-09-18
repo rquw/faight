@@ -1,0 +1,3 @@
+Impact, footstep and handling sounds from the Kenney asset packs
+"Impact Sounds" and "RPG Audio" (https://kenney.nl), released under CC0 1.0
+(public domain). Converted to mono 22 kHz MP3 for this game.
