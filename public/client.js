@@ -39,12 +39,18 @@ if (urlCode) codeIn.value = urlCode;
 codeIn.addEventListener('input', () => { codeIn.value = codeIn.value.replace(/\D/g, '').slice(0, 4); });
 
 function myName() { return nameIn.value.trim() || 'Stick' + Math.floor(Math.random() * 99); }
+// a random id kept in this browser: the server uses it to keep one device to one game
+let deviceId = '';
+try {
+  deviceId = localStorage.getItem('faight-device') || '';
+  if (!deviceId) { deviceId = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('faight-device', deviceId); }
+} catch { deviceId = Math.random().toString(36).slice(2); }
 function go(kind) {
   const name = myName();
   try { localStorage.setItem('faight-name', name); } catch {}
   if (kind === 'join' && codeIn.value.length !== 4) { $('err').textContent = 'The code has 4 digits'; return; }
   audio();
-  const msg = kind === 'create' ? { t: 'create', name } : { t: 'join', name, code: codeIn.value };
+  const msg = kind === 'create' ? { t: 'create', name, dev: deviceId } : { t: 'join', name, code: codeIn.value, dev: deviceId };
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
   else connect(() => ws.send(JSON.stringify(msg)));
 }

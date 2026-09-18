@@ -1,6 +1,6 @@
 {
   "name": "faight",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Physics stick fighting with friends",
   "main": "server/index.js",
   "scripts": {

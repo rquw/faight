@@ -28,6 +28,17 @@ const rooms = new Map();
 // The only limit is how many people share one room - that is what costs bandwidth and makes it laggy.
 // Anyone can always open another room; ROOM_SAFETY only exists so nobody can spam thousands of them.
 const MAX_PLAYERS = 20, ROOM_SAFETY = 60;
+// one game per device: the browser sends a random id it stores locally, so a second tab on the same
+// machine is turned away. (The public IP is useless for this - a whole school shares one.)
+const devices = new Map();   // device id -> ws
+
+function deviceBusy(dev, ws) {
+  if (!dev) return false;
+  const other = devices.get(dev);
+  if (other && other !== ws && other.readyState === 1) return true;
+  if (other && other !== ws) devices.delete(dev);   // stale socket
+  return false;
+}
 
 function roomCards() {
   return [...rooms.values()].filter(g => g.players.size > 0).map(g => ({
@@ -76,6 +87,8 @@ wss.on('connection', (ws) => {
     }
     if (msg.t === 'rooms') return ws.send(JSON.stringify({ t: 'rooms', list: roomCards(), cap: MAX_PLAYERS }));
     if ((msg.t === 'create' || msg.t === 'join') && !player) {
+      const dev = String(msg.dev || '').slice(0, 40);
+      if (deviceBusy(dev, ws)) return ws.send(JSON.stringify({ t: 'err', m: "You're already in a game in another tab" }));
       if (msg.t === 'create') {
         if (rooms.size >= ROOM_SAFETY) return ws.send(JSON.stringify({ t: 'err', m: 'Too many rooms right now - join one from the list' }));
         const code = newCode();
@@ -90,10 +103,18 @@ wss.on('connection', (ws) => {
           return ws.send(JSON.stringify({ t: 'err', m: 'That room is full (' + MAX_PLAYERS + ' players) - join another one or make your own' }));
         }
       }
-      player = room.addPlayer(ws, msg.name);
+      const want = String(msg.name || 'Stick').slice(0, 14).trim() || 'Stick';
+      if ([...room.players.values()].some(p => p.name.toLowerCase() === want.toLowerCase())) {
+        const full = room;
+        room = null;
+        return ws.send(JSON.stringify({ t: 'err', m: '"' + want + '" is already taken in room ' + full.code + ' - pick another name' }));
+      }
+      if (dev) { devices.set(dev, ws); ws.dev = dev; }
+      player = room.addPlayer(ws, want);
     }
   });
   ws.on('close', () => {
+    if (ws.dev && devices.get(ws.dev) === ws) devices.delete(ws.dev);
     if (room && player) {
       room.removePlayer(player);
       if (room.players.size === 0) room.emptySince = Date.now();
