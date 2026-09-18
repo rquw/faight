@@ -11,6 +11,10 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
   if (url === '/health') { res.writeHead(200); return res.end('ok'); }
+  if (url === '/version') {
+    res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-cache' });
+    return res.end(require('../package.json').version);
+  }
   const file = path.normalize(path.join(PUBLIC, url === '/' ? 'index.html' : url));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {

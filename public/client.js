@@ -63,6 +63,8 @@ inviteName.addEventListener('keydown', (e) => { if (e.key === 'Enter') inviteGo(
 $('invite-back').onclick = () => { $('invite').hidden = true; $('menu').hidden = false; };
 if (urlCode.length === 4) openInvite();
 
+fetch('version').then(r => r.text()).then(v => { $('version').textContent = 'v' + v.trim(); }).catch(() => {});
+
 $('create').onclick = () => go('create');
 $('join').onclick = () => go('join');
 codeIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') go('join'); });
