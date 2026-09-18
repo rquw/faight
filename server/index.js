@@ -34,7 +34,11 @@ function newCode() {
   return null;
 }
 
-const wss = new WebSocketServer({ server, perMessageDeflate: { threshold: 256, zlibDeflateOptions: { level: 3 } } });
+// no per-message compression: on a small instance the CPU it costs is worth more than the bytes,
+// and Nagle off so a finished snapshot goes out immediately instead of waiting for a full segment
+server.noDelay = true;
+server.on('connection', (socket) => socket.setNoDelay(true));
+const wss = new WebSocketServer({ server, perMessageDeflate: false });
 wss.on('connection', (ws) => {
   let room = null, player = null;
   ws.isAlive = true;

@@ -194,6 +194,12 @@ function renderRooms(list) {
   }
 }
 
+let rtt = 0, pingTimer = null;
+function startPing() {
+  clearInterval(pingTimer);
+  pingTimer = setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'ping', c: performance.now() })); }, 1000);
+}
+
 function connect(onOpen, attempt = 0) {
   if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
   $('err').textContent = attempt ? `Server is starting… (${attempt * 3}s)` : '';
@@ -218,6 +224,13 @@ function connect(onOpen, attempt = 0) {
 function onMessage(m) {
   switch (m.t) {
     case 'err': $('err').textContent = m.m; break;
+    case 'pong': {
+      const r = performance.now() - m.c;
+      rtt = rtt ? rtt + (r - rtt) * 0.3 : r;
+      $('ping').textContent = Math.round(rtt) + ' ms';
+      $('ping').style.color = rtt < 70 ? '#8ce08c' : rtt < 150 ? '#e8d27a' : '#e8756a';
+      break;
+    }
     case 'rooms': if (!$('rooms').hidden) renderRooms(m.list); break;
     case 'joined':
       myId = m.id; roomCode = m.code;
@@ -227,6 +240,7 @@ function onMessage(m) {
       $('menu').hidden = true; $('hud').hidden = false;
       touchLayer.hidden = !touchMode;
       history.replaceState(null, '', '?code=' + m.code + location.hash);
+      startPing();
       break;
     case 'roster':
       roster.clear();
@@ -271,11 +285,11 @@ function onSnap(s) {
   if (lastSnapAt) {
     const gap = Math.min(0.5, now - lastSnapAt);
     snapGap += (gap - snapGap) * 0.08;
-    // how irregular the arrivals are: reacts at once, forgets slowly -> the buffer covers hiccups
-    jitter = Math.max(jitter * 0.99, Math.min(0.2, Math.abs(gap - snapGap)));
+    // jitter reacts at once but is forgotten quickly - every millisecond of buffer is input delay
+    jitter = Math.max(jitter * 0.93, Math.min(0.06, Math.abs(gap - snapGap)));
   }
   lastSnapAt = now;
-  INTERP = Math.max(0.05, Math.min(0.3, snapGap * 1.5 + jitter * 1.6));
+  INTERP = Math.max(0.035, Math.min(0.1, snapGap * 1.15 + jitter));
   const t = s.tm / 1000;
   const off = t - now;
   // keep the newest offset (a late packet must not pull the render clock forward), drift back slowly
@@ -290,6 +304,31 @@ function onSnap(s) {
   if (snaps.length > 30) snaps.shift();
   // sleeping props aren't resent every time: remember their last pose
   for (const o of s.O) { const sh = map.shapeById.get(o[0]); if (sh) { sh.x = o[1] / 100; sh.y = o[2] / 100; sh.a = o[3] / 100; } }
+}
+
+// Your own character is shown ahead of the interpolation buffer: the last known hip velocity is
+// extrapolated over (age of the newest snapshot + half the round trip), so pressing A/D feels
+// immediate instead of a full ping late. The correction is low-passed so it never snaps.
+const predOff = { x: 0, y: 0 };
+// small debug hook (used to measure input delay): faightDebug.pos / .rtt / .interp, .predict = false
+const dbg = window.faightDebug = { pos: null, rtt: 0, interp: 0, predict: true };
+function predictLocal(players, dt) {
+  const row = players.find(p => p[0] === myId);
+  if (!row || !row[1] || row[5] || snaps.length < 2 || !dbg.predict) { predOff.x = predOff.y = 0; return; }
+  const N = snaps[snaps.length - 1], P = snaps[snaps.length - 2];
+  const a = P.P.get(myId), b = N.P.get(myId);
+  let tx = 0, ty = 0;
+  if (a && b && N.t > P.t) {
+    const step = N.t - P.t;
+    const vx = (b[6] - a[6]) / 100 / step, vy = (b[7] - a[7]) / 100 / step;
+    const lead = Math.max(0, Math.min(0.25, performance.now() / 1000 + clockOffset - N.t + rtt / 2000));
+    tx = Math.max(-3, Math.min(3, vx * lead));
+    ty = Math.max(-3, Math.min(3, vy * lead));
+  }
+  const k = Math.min(1, dt * 18);
+  predOff.x += (tx - predOff.x) * k;
+  predOff.y += (ty - predOff.y) * k;
+  for (let i = 0; i < 11; i++) { row[6 + i * 3] += predOff.x * 100; row[7 + i * 3] += predOff.y * 100; }
 }
 
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -1205,7 +1244,7 @@ function render(nowMs) {
   const players = [];
   if (A) for (const pb of B.P.values()) {
     const pa = A.P.get(pb[0]);
-    if (!pa) { players.push(pb); continue; }
+    if (!pa) { players.push(pb.slice()); continue; }   // copy: prediction may shift the row
     const out = pb.slice();
     out[2] = lerpA(pa[2] / 100, pb[2] / 100, k) * 100;
     for (let i = 0; i < 11; i++) {
@@ -1215,10 +1254,13 @@ function render(nowMs) {
     }
     players.push(out);
   }
+  predictLocal(players, dt);
   updateCam(dt);
   livePlayers = players;
+  dbg.rtt = rtt; dbg.interp = INTERP;
   const meRow = players.find(p => p[0] === myId);
   myPos = meRow ? { x: meRow[9] / 100, y: meRow[10] / 100 + 0.15, alive: meRow[1], armed: meRow[3] >= 0, ammo: meRow[4] } : null;
+  dbg.pos = myPos;
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.translate(W / 2, H / 2);

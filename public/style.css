@@ -79,3 +79,5 @@ body.touch .score { font-size: 11px; }
 #invite-back { background: #222; font-size: 12px; padding: 8px 12px; }
 
 #version { margin-top: 10px; text-align: center; font-family: Arial, sans-serif; font-size: 10px; letter-spacing: 1px; color: #5a5a5a; }
+
+#ping { font-size: 10px; letter-spacing: 1px; color: #8ce08c; margin-top: 2px; }

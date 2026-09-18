@@ -488,8 +488,10 @@ class Game {
     this.cleanup();
     this.roundLogic();
 
-    // 30 snapshots per second is plenty with client interpolation and halves per-frame work on both sides
-    if (this.tickN % (this.chars.length > 12 ? 3 : 2) === 0) this.sendSnapshot();
+    // small rooms get the full 60 per second (every snapshot the client waits for is input delay),
+    // bigger ones are thinned out to keep bandwidth and CPU in check
+    const every = this.chars.length > 12 ? 3 : this.chars.length > 6 ? 2 : 1;
+    if (this.tickN % every === 0) this.sendSnapshot();
   }
 
   checkHazards() {
