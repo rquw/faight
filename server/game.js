@@ -28,6 +28,8 @@ class Game {
     this.emptySince = 0;
     this.hostId = 0;
     this.queuedMap = null;
+    this.queuedCat = null;
+    this.sleepCursor = 0;
   }
 
   // ---------- players
@@ -42,12 +44,12 @@ class Game {
     };
     this.players.set(p.id, p);
     if (!this.hostId) this.hostId = p.id;
-    this.send(p, { t: 'joined', id: p.id, code: this.code, maps: MAPS.map(m => m.name) });
+    this.send(p, { t: 'joined', id: p.id, code: this.code, maps: MAPS.map(m => m.name), cats: MAPS.CATEGORIES });
     this.broadcastRoster();
     if (this.state === 'wait') this.startRound();
     else {
+      this.spawnLate(p);                 // straight into the running round, no waiting
       this.send(p, this.mapMessage());
-      if (this.participants <= 1 && !this.ending) this.ending = { t: 0.5, winner: null, silent: true };
     }
     return p;
   }
@@ -64,13 +66,24 @@ class Game {
     };
     p.bot = new Bot(this, p);
     this.players.set(p.id, p);
-    if (this.state === 'play' && this.world && !this.ending && this.spawns && this.spawns.length) {
-      const s = this.spawns[Math.floor(Math.random() * this.spawns.length)];
-      p.char = new Character(this, p, s.x + (Math.random() - 0.5), s.y + 0.3);
-      this.chars.push(p.char);
-      this.participants++;
-    }
+    this.spawnLate(p);
     this.broadcastRoster();
+  }
+
+  // drop a player into a round that is already running: the spawn furthest from everyone alive
+  spawnLate(p) {
+    if (this.state !== 'play' || !this.world || this.ending || !this.spawns || !this.spawns.length) return;
+    const alive = this.chars.filter(c => c.alive).map(c => c.hip.getPosition());
+    let best = this.spawns[0], bd = -1;
+    for (const s of this.spawns) {
+      let d = Infinity;
+      for (const a of alive) d = Math.min(d, Math.hypot(a.x - s.x, a.y - s.y));
+      if (d > bd) { bd = d; best = s; }
+    }
+    p.char = new Character(this, p, best.x + (Math.random() - 0.5) * 0.6, best.y + 0.3);
+    this.chars.push(p.char);
+    this.participants++;
+    this.event(['spawn', p.id, r2(best.x), r2(best.y)]);
   }
 
   removePlayer(p) {
@@ -110,7 +123,7 @@ class Game {
   broadcastRoster() {
     this.broadcast({
       t: 'roster', list: [...this.players.values()].map(p => [p.id, p.name, p.color, p.score]),
-      host: this.hostId, queued: this.queuedMap == null ? null : MAPS[this.queuedMap].name,
+      host: this.hostId, queued: this.queuedMap != null ? MAPS[this.queuedMap].name : this.queuedCat ? 'cat:' + this.queuedCat : null,
     });
   }
 
@@ -127,8 +140,15 @@ class Game {
 
   queueMap(p, name) {
     if (p.id !== this.hostId) return;
-    const i = MAPS.findIndex(m => m.name === name);
-    this.queuedMap = i >= 0 ? i : null;
+    this.queuedCat = null;
+    this.queuedMap = null;
+    if (typeof name === 'string' && name.startsWith('cat:')) {
+      const cat = name.slice(4);
+      if (MAPS.some(m => m.cat === cat)) this.queuedCat = cat;
+    } else {
+      const i = MAPS.findIndex(m => m.name === name);
+      if (i >= 0) this.queuedMap = i;
+    }
     this.broadcastRoster();
   }
 
@@ -142,6 +162,11 @@ class Game {
     let idx;
     do idx = Math.floor(Math.random() * MAPS.length); while (MAPS.length > 1 && idx === this.lastMap);
     if (this.queuedMap != null) { idx = this.queuedMap; this.queuedMap = null; }
+    else if (this.queuedCat) {
+      const pool = MAPS.map((m, i) => i).filter(i => MAPS[i].cat === this.queuedCat && i !== this.lastMap);
+      idx = pool[Math.floor(Math.random() * pool.length)];
+      this.queuedCat = null;
+    }
     if (this.forceMap != null) idx = this.forceMap;
     this.lastMap = idx;
     const def = MAPS[idx];
@@ -151,11 +176,16 @@ class Game {
     this.props = new Map(); this.items = new Map(); this.projs = new Map(); this.bullets = [];
     this.chars = []; this.ropes = []; this.links = []; this.debris = []; this.hazards = []; this.tickers = []; this.breaks = [];
     this.nextObj = 1;
-    this.time = 0; this.freeze = 0.8; this.ending = null;
+    this.time = 0; this.freeze = 0.8; this.ending = null; this.sudden = false; this.suddenT = 0;
     this.dropTimer = 2;
     this.pending = [];
     this.pendingBreak = [];
     this.world.on('begin-contact', (c) => this.onContact(c));
+    this.world.on('pre-solve', (c) => {
+      const ua = c.getFixtureA().getUserData(), ub = c.getFixtureB().getUserData();
+      if (ua && ua.belt) c.setTangentSpeed(ua.belt);
+      else if (ub && ub.belt) c.setTangentSpeed(-ub.belt);
+    });
 
     const spawns = [];
     def.build(this.mapContext(spawns, n));
@@ -167,7 +197,7 @@ class Game {
       const s = spawns.length ? spawns[Math.floor(((i + 0.5) / players.length) * spawns.length)] : { x: this.W / 2, y: this.H / 2 };
       const off = spawns.length < players.length ? ((i % 3) - 1) * 0.8 : 0;
       p.char = new Character(this, p, s.x + off, s.y + 0.3);
-      if (process.env.FAIGHT_DEV) { const t = C.ORDER[Math.floor(Math.random() * C.ORDER.length)]; p.char.weapon = { type: t, ammo: C.WEAPONS[t].ammo, spin: 0 }; }
+      if (process.env.FAIGHT_DEV) { const t = process.env.FAIGHT_W === 'each' ? C.ORDER[p.num % C.ORDER.length] : process.env.FAIGHT_W || C.ORDER[Math.floor(Math.random() * C.ORDER.length)]; p.char.weapon = { type: t, ammo: C.WEAPONS[t].ammo, spin: 0 }; }
       this.chars.push(p.char);
     });
     this.participants = players.length;
@@ -212,6 +242,19 @@ class Game {
         game.ropes.push(rope);
         return rope;
       },
+      // plank bridge between two bodies; the hinges can be blown apart
+      bridge(a, x0, y0, b, x1, y1, plankW = 1.5) {
+        const len = Math.hypot(x1 - x0, y1 - y0), n = Math.max(2, Math.ceil(len / plankW));
+        const ang = Math.atan2(y1 - y0, x1 - x0), pw = len / n;
+        let prev = a;
+        for (let i = 0; i < n; i++) {
+          const t0 = i / n, cx = x0 + (x1 - x0) * (t0 + 0.5 / n), cy = y0 + (y1 - y0) * (t0 + 0.5 / n);
+          const plank = m.rect(cx, cy - 0.15, pw - 0.05, 0.3, { dynamic: true, density: 2.5, color: '#5a4636', angle: ang });
+          m.link(prev, plank, x0 + (x1 - x0) * t0, y0 + (y1 - y0) * t0 - 0.1);
+          prev = plank;
+        }
+        m.link(prev, b, x1, y1 - 0.1);
+      },
       // a hinge between two bodies that explosions can blow apart
       link(a, b, x, y) {
         const joint = game.world.createJoint(pl.RevoluteJoint({}, a, b, V(x, y)));
@@ -231,7 +274,7 @@ class Game {
       restitution: o.restitution || 0, isSensor: !!o.sensor,
       filterCategoryBits: type === 'static' ? C.CAT_WORLD : C.CAT_PROP,
       filterMaskBits: C.CAT_WORLD | C.CAT_PROP | C.CAT_BODY | C.CAT_ITEM | C.CAT_PROJ,
-      userData: { hazard: o.hazard, bounce: o.bounce, ice: o.ice },
+      userData: { hazard: o.hazard, bounce: o.bounce, ice: o.ice, belt: o.belt },
     });
     const id = this.nextObj++;
     const desc = { id, k: type === 'static' ? 0 : type === 'dynamic' ? 1 : 2, s: shape, x: r2(x), y: r2(y), a: o.angle || 0 };
@@ -245,6 +288,7 @@ class Game {
     this.props.set(id, body);
     if (o.hazard) this.hazards.push(fixture);
     if (o.breakAt) this.breaks.push({ body, at: o.breakAt });
+    if (o.ttl) this.debris.push({ body, until: this.time + o.ttl });
     if (this.time > 0) this.event(['add', desc]);
     return body;
   }
@@ -411,6 +455,21 @@ class Game {
       if (this.freeze === 0 && c.stun <= 0) this.combat(c, c.player.input);
     }
 
+    if (!this.sudden && this.time > 75 && !this.ending && this.participants >= 2) {
+      this.sudden = true;
+      this.event(['sudden']);
+    }
+    if (this.sudden && !this.ending) {
+      this.suddenT = (this.suddenT || 0) - DT;
+      if (this.suddenT <= 0) {
+        this.suddenT = 0.7;
+        const s = 0.8 + Math.random() * 0.6;
+        const b = this.addProp('b', this.W * (0.05 + Math.random() * 0.9), this.H + 3, { w: s, h: s }, { dynamic: true, density: 1.4, crate: true, hp: 45 });
+        b.setLinearVelocity(V(0, -10));
+        this.debris.push({ body: b, until: this.time + 14 });
+      }
+    }
+
     this.updateBullets();
     this.updateProjectiles();
     this.updateItems();
@@ -420,13 +479,17 @@ class Game {
     for (const fn of pend) fn();
     const brk = this.pendingBreak; this.pendingBreak = [];
     for (const b of brk) this.shatter(b.body, b.dx, b.dy);
-    while (this.debris.length && this.debris[0].until < this.time) this.removeProp(this.debris.shift().body);
+    if (this.tickN % 30 === 0 && this.debris.some(d => d.until < this.time)) {
+      for (const d of this.debris.filter(d => d.until < this.time)) this.removeProp(d.body);
+      this.debris = this.debris.filter(d => d.until >= this.time);
+    }
 
     this.checkHazards();
     this.cleanup();
     this.roundLogic();
 
-    if (this.tickN % (this.chars.length > 16 ? 3 : this.chars.length > 8 ? 2 : 1) === 0) this.sendSnapshot();
+    // 30 snapshots per second is plenty with client interpolation and halves per-frame work on both sides
+    if (this.tickN % (this.chars.length > 12 ? 3 : 2) === 0) this.sendSnapshot();
   }
 
   checkHazards() {
@@ -802,13 +865,23 @@ class Game {
         hipX: hp.x, hipY: hp.y, angles: c.bodies.map(b => b.getAngle()),
       });
     }
-    const props = [];
-    const full = this.tickN % 60 === 0;
+    const props = [], sleepers = [];
     for (const [id, b] of this.props) {
       const t = b.getType();
-      if (t === 'static' || (t === 'dynamic' && !b.isAwake() && !full)) continue;
+      if (t === 'static') continue;
+      if (t === 'dynamic' && !b.isAwake()) { sleepers.push(id); continue; }
       const q = b.getPosition();
       props.push([id, q.x, q.y, b.getAngle()]);
+    }
+    // sleeping props are refreshed a few at a time instead of all at once every second (no spikes)
+    if (sleepers.length) {
+      const n = Math.min(20, sleepers.length);
+      for (let k = 0; k < n; k++) {
+        const id = sleepers[(this.sleepCursor + k) % sleepers.length];
+        const b = this.props.get(id), q = b.getPosition();
+        props.push([id, q.x, q.y, b.getAngle()]);
+      }
+      this.sleepCursor = (this.sleepCursor + n) % sleepers.length;
     }
     const items = [];
     for (const it of this.items.values()) {

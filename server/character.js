@@ -60,6 +60,7 @@ class Character {
     this.lastWallSide = 0;
     this.wallSide = 0;
     this.lastHitBy = null;
+    this.born = game.time || 0;
     this.build(x, y);
   }
 
@@ -282,6 +283,7 @@ class Character {
       } else if (!stunned) {
         gvy = gb.getLinearVelocityFromWorldPoint(hit.point).y;
         if (hu.ice) for (const b of this.bodies) b.setLinearDamping(0.6);
+        if (hu.belt) for (const b of this.bodies) b.applyForceToCenter(V(hu.belt * this.drag * b.getMass(), 0), true);
         // stand force, eased in after getting up (SFTG getUpCurve)
         const getUp = Math.min(1, this.sinceFallen * 2);
         const rel = hip.getLinearVelocity().y - gvy;
@@ -317,6 +319,21 @@ class Character {
     // ---- run: same push on the ground and in the air, drag does the limiting
     if (move) for (const b of this.bodies) b.applyForceToCenter(V(move * RUN_ACCEL * b.getMass(), 0), true);
     if (input.d && !this.grounded) hip.applyForceToCenter(V(0, -90 * M), true);
+
+    // ---- ledge assist: rising next to a ledge that's just above chest height -> pull up onto it
+    if (!this.grounded && move && v.y > -2 && this.sinceJumped < 0.6) {
+      const cp2 = chest.getPosition();
+      const wallAhead = this.castWall(move);
+      if (wallAhead) {
+        let clearAbove = true;
+        this.world.rayCast(V(cp2.x, cp2.y + 1.3), V(cp2.x + move * 0.8, cp2.y + 1.3), (f) => {
+          const u = f.getBody().getUserData() || {};
+          if (f.isSensor() || u.kind !== 'prop') return -1;
+          clearAbove = false; return 0;
+        });
+        if (clearAbove) for (const b of this.bodies) { const bv = b.getLinearVelocity(); b.setLinearVelocity(V(bv.x, Math.max(bv.y, 9))); }
+      }
+    }
 
     // ---- walls
     this.wallSide = 0;
@@ -424,7 +441,8 @@ class Character {
   }
 
   damage(amount, by, stun = 0) {
-    if (!this.alive || this.game.freeze > 0 || this.game.time < 1.3) return;   // SFTG: 0.5 s spawn protection
+    // SFTG: 0.5 s spawn protection; players who drop into a running round get their own 1.2 s
+    if (!this.alive || this.game.freeze > 0 || this.game.time < 1.3 || this.game.time - this.born < 1.2) return;
     this.hp -= amount;
     this.game.event(['hp', this.player.id, Math.max(0, Math.round(this.hp))]);
     if (by && by !== this) this.lastHitBy = by;

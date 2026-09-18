@@ -60,12 +60,12 @@ wss.on('connection', (ws) => {
     if ((msg.t === 'create' || msg.t === 'join') && !player) {
       if (msg.t === 'create') {
         const code = newCode();
-        if (!code) return ws.send(JSON.stringify({ t: 'err', m: 'Server voll' }));
+        if (!code) return ws.send(JSON.stringify({ t: 'err', m: 'Server full' }));
         room = new Game(code);
         rooms.set(code, room);
       } else {
         room = rooms.get(String(msg.code || '').trim());
-        if (!room) return ws.send(JSON.stringify({ t: 'err', m: 'Raum nicht gefunden' }));
+        if (!room) return ws.send(JSON.stringify({ t: 'err', m: 'Room not found' }));
       }
       player = room.addPlayer(ws, msg.name);
     }

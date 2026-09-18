@@ -6,7 +6,7 @@ const V = pl.Vec2;
 
 const maps = [
   {
-    name: 'Fabrik', sky: ['#b8b3a8', '#dcd7cc'],
+    name: 'Factory', sky: ['#b8b3a8', '#dcd7cc'],
     build(m) {
       const { X } = m;
       m.floor(X(0.05), X(0.95), 4, 4);
@@ -31,7 +31,7 @@ const maps = [
     },
   },
   {
-    name: 'Lagerhalle', sky: ['#a9b4b6', '#d6dcd9'],
+    name: 'Warehouse', sky: ['#a9b4b6', '#d6dcd9'],
     build(m) {
       const { X } = m;
       m.floor(X(0.04), X(0.3), 4, 4); m.floor(X(0.42), X(0.58), 4, 4); m.floor(X(0.7), X(0.96), 4, 4);
@@ -55,7 +55,7 @@ const maps = [
     },
   },
   {
-    name: 'Burg', sky: ['#9fb1bd', '#d9dfdf'],
+    name: 'Castle', sky: ['#9fb1bd', '#d9dfdf'],
     build(m) {
       const { X } = m;
       const castles = [];
@@ -83,7 +83,7 @@ const maps = [
     },
   },
   {
-    name: 'Lavahöhle', sky: ['#2a1614', '#5c2a1e'], dark: true,
+    name: 'Lava Cave', sky: ['#2a1614', '#5c2a1e'], dark: true,
     build(m) {
       const { X, H } = m;
       const lava = m.block(-20, -H, m.W + 20, 0, { kinematic: true, hazard: 'lava' });
@@ -100,7 +100,7 @@ const maps = [
     },
   },
   {
-    name: 'Baustelle', sky: ['#c4b59b', '#e3d9c6'],
+    name: 'Construction', sky: ['#c4b59b', '#e3d9c6'],
     build(m) {
       const { X, H, W } = m;
       m.floor(X(0.03), X(0.44), 3, 3); m.floor(X(0.56), X(0.97), 3, 3);
@@ -122,7 +122,7 @@ const maps = [
     },
   },
   {
-    name: 'Wippe', sky: ['#b2bfc9', '#dfe3e2'],
+    name: 'Seesaw', sky: ['#b2bfc9', '#dfe3e2'],
     build(m) {
       const { X, W } = m;
       const pivot = m.block(W / 2 - 0.5, 0, W / 2 + 0.5, 5.5);
@@ -143,7 +143,7 @@ const maps = [
     },
   },
   {
-    name: 'Dächer', sky: ['#d4a98a', '#efd8c2'],
+    name: 'Rooftops', sky: ['#d4a98a', '#efd8c2'],
     build(m) {
       const { X } = m;
       const b = [[0.02, 0.18, 7], [0.22, 0.38, 10.5], [0.42, 0.58, 5], [0.62, 0.78, 10.5], [0.82, 0.98, 7]];
@@ -163,7 +163,7 @@ const maps = [
     },
   },
   {
-    name: 'Sägewerk', sky: ['#b9a88f', '#ddd0bb'],
+    name: 'Sawmill', sky: ['#b9a88f', '#ddd0bb'],
     build(m) {
       const { X, W } = m;
       m.floor(X(0.03), X(0.97), 2, 2);
@@ -187,7 +187,7 @@ const maps = [
     },
   },
   {
-    name: 'Mond', sky: ['#0d1020', '#252a44'], dark: true, gravity: -11,
+    name: 'Moon', sky: ['#0d1020', '#252a44'], dark: true, gravity: -11,
     build(m) {
       const { X } = m;
       const rock = { color: '#4b4f63' };
@@ -202,7 +202,7 @@ const maps = [
     },
   },
   {
-    name: 'Eisberg', sky: ['#9cc3d6', '#e2eff4'],
+    name: 'Iceberg', sky: ['#9cc3d6', '#e2eff4'],
     build(m) {
       const { X } = m;
       const ice = { ice: true, color: '#2f4552' };
@@ -221,7 +221,7 @@ const maps = [
     },
   },
   {
-    name: 'Laternen', sky: ['#7e8a92', '#b5bec2'],
+    name: 'Lanterns', sky: ['#7e8a92', '#b5bec2'],
     build(m) {
       const { X } = m;
       m.floor(X(0.12), X(0.88), 4, 4);
@@ -235,7 +235,7 @@ const maps = [
     },
   },
   {
-    name: 'Kistenregen', sky: ['#aeaaa0', '#d8d4ca'],
+    name: 'Crate Rain', sky: ['#aeaaa0', '#d8d4ca'],
     build(m) {
       const { X, H } = m;
       m.floor(X(0.06), X(0.94), 4, 4);
@@ -257,7 +257,7 @@ const maps = [
     },
   },
   {
-    name: 'Schaukeln', sky: ['#bdb49e', '#e2dccb'],
+    name: 'Swings', sky: ['#bdb49e', '#e2dccb'],
     build(m) {
       const { X, H } = m;
       for (const side of [0, 1]) {
@@ -281,16 +281,16 @@ const maps = [
     },
   },
   {
-    name: 'Windmühle', sky: ['#a9bca3', '#dce5d6'],
+    name: 'Windmill', sky: ['#a9bca3', '#dce5d6'],
     build(m) {
       const { X, W, H } = m;
       for (const side of [0, 1]) {
         const a = side ? X(0.75) : X(0.03), b = side ? X(0.97) : X(0.25);
         m.block(a, 0, b, 6);
         m.wall(side ? b - 0.3 : a + 0.3, 6, 10);
-        m.wall(side ? a + 0.3 : b - 0.3, 8.8, 10);
+        m.wall(side ? a + 0.3 : b - 0.3, 9.6, 10);
         m.floor(a, b, 10.6, 0.6);
-        m.block(side ? a + 2 : b - 3.2, 6, side ? a + 3.2 : b - 2, 7.2);
+        m.block(side ? a + 2 : b - 3.2, 6, side ? a + 3.2 : b - 2, 6.6);
         m.floor(side ? X(0.8) : X(0.1), side ? X(0.92) : X(0.2), 15, 0.5);
         m.spawnRow(a + 1, b - 1, 6);
       }
@@ -303,7 +303,7 @@ const maps = [
   },
   // ---------------- maps made only of physics objects (everything hangs on ropes you can shoot)
   {
-    name: 'Hängepartie', sky: ['#aab3ad', '#dde0d6'],
+    name: 'Hanging', sky: ['#aab3ad', '#dde0d6'],
     build(m) {
       const { W, H } = m;
       const top = H + 3;
@@ -319,7 +319,7 @@ const maps = [
     },
   },
   {
-    name: 'Holzbrücke', sky: ['#b7ab95', '#e0d6c3'],
+    name: 'Wood Bridge', sky: ['#b7ab95', '#e0d6c3'],
     build(m) {
       const { W, H } = m;
       // a heavy plank bridge across the whole map, held at the edges and by hanging ropes
@@ -352,7 +352,7 @@ const maps = [
     },
   },
   {
-    name: 'Kistenturm', sky: ['#9fa9b3', '#d5dade'],
+    name: 'Crate Tower', sky: ['#9fa9b3', '#d5dade'],
     build(m) {
       const { W, H, X } = m;
       // one big slab on four ropes carrying a mountain of crates
@@ -373,6 +373,193 @@ const maps = [
       m.spawnRow(W / 2 + sw / 2 - 5, W / 2 + sw / 2 - 0.8, y);
     },
   },
+  // ---------------- new maps for the categories
+  {
+    title: 'Conveyor', sky: ['#a8aaa6', '#d6d6d0'],
+    build(m) {
+      const { X, H } = m;
+      const belt = '#2d2f33';
+      // lower belts run out towards the walls, the pit in the middle is the danger
+      m.floor(X(0.04), X(0.45), 5, 0.8, { belt: -3.5, color: belt });
+      m.floor(X(0.55), X(0.96), 5, 0.8, { belt: 3.5, color: belt });
+      m.wall(X(0.04) + 0.3, 5, 7.2); m.wall(X(0.96) - 0.3, 5, 7.2);
+      m.floor(X(0.22), X(0.78), 10.5, 0.7, { belt: -3.5, color: belt });
+      m.floor(X(0.06), X(0.2), 15.5, 0.6); m.floor(X(0.8), X(0.94), 15.5, 0.6);
+      m.floor(X(0.43), X(0.57), 16, 0.6);
+      m.wall(X(0.43) + 0.25, 16, 17.3, 0.5, { hp: 80 }); m.wall(X(0.57) - 0.25, 16, 17.3, 0.5, { hp: 80 });
+      m.spawnRow(X(0.08), X(0.4), 5); m.spawnRow(X(0.6), X(0.92), 5); m.spawnRow(X(0.26), X(0.74), 10.5);
+      let next = 2;
+      m.tick((t) => {
+        if (t < next) return;
+        next = t + 3 + Math.random() * 2;
+        const b = m.crate(X(0.3) + Math.random() * X(0.4), H + 2, 0.9 + Math.random() * 0.4, { ttl: 20 });
+        b.setLinearVelocity(V(0, -6));
+      });
+    },
+  },
+  {
+    title: 'Press', sky: ['#9c9a94', '#cfccc3'],
+    build(m) {
+      const { X, H } = m;
+      m.floor(X(0.03), X(0.97), 3, 3);
+      m.floor(X(0.02), X(0.1), 9, 0.6); m.floor(X(0.9), X(0.98), 9, 0.6);
+      m.floor(X(0.02), X(0.12), 15, 0.6); m.floor(X(0.88), X(0.98), 15, 0.6);
+      const presses = [0.22, 0.41, 0.59, 0.78];
+      presses.forEach((fx, i) => {
+        const x = X(fx), top = H - 2.2, low = 3 + 0.25 + 1.25;
+        m.floor(x - 1.9, x + 1.9, H, 1, { color: '#1e1f22' });
+        const block = m.rect(x, top, 3, 2.5, { kinematic: true, color: '#3a3d42' });
+        const blade = m.rect(x, top - 1.45, 2.8, 0.4, { kinematic: true, hazard: 'crush', sensor: true, color: '#8a2a22' });
+        const phase = i * 0.9 + Math.random() * 0.4, period = 3.6;
+        m.tick((t) => {
+          const k = ((t + phase) % period) / period;
+          // wait up, slam down, hold, rise
+          let target;
+          if (k < 0.45) target = top;
+          else if (k < 0.55) target = top - (top - low) * ((k - 0.45) / 0.1);
+          else if (k < 0.68) target = low;
+          else target = low + (top - low) * ((k - 0.68) / 0.32);
+          const vy = (target - block.getPosition().y) * 20;
+          block.setLinearVelocity(V(0, vy));
+          blade.setLinearVelocity(V(0, (target - 1.45 - blade.getPosition().y) * 20));
+        });
+      });
+      for (const fx of [0.315, 0.5, 0.685]) m.crates(X(fx), 3, 1, 2, 1);
+      m.spawnRow(X(0.04), X(0.14), 3); m.spawnRow(X(0.86), X(0.96), 3); m.spawnRow(X(0.29), X(0.34), 3); m.spawnRow(X(0.66), X(0.71), 3);
+    },
+  },
+  {
+    title: 'Crate Pyramid', sky: ['#b6aa98', '#e2d9c8'],
+    build(m) {
+      const { X } = m;
+      m.floor(X(0.03), X(0.97), 3, 3);
+      const rows = 9, s = 1.1;
+      for (let r = 0; r < rows; r++) {
+        const cols = 12 - r;
+        for (let c = 0; c < cols; c++) m.crate(X(0.5) + (c - (cols - 1) / 2) * s * 1.02, 3 + r * s * 1.01, s);
+      }
+      m.floor(X(0.04), X(0.18), 9, 0.6, { hp: 200 }); m.floor(X(0.82), X(0.96), 9, 0.6, { hp: 200 });
+      m.floor(X(0.08), X(0.2), 15, 0.6); m.floor(X(0.8), X(0.92), 15, 0.6);
+      m.wall(X(0.18) - 0.25, 9, 10.3, 0.5, { hp: 70 }); m.wall(X(0.82) + 0.25, 9, 10.3, 0.5, { hp: 70 });
+      m.spawnRow(X(0.04), X(0.22), 3); m.spawnRow(X(0.78), X(0.96), 3);
+    },
+  },
+  {
+    title: 'Harbour', sky: ['#9fb4bf', '#d9e3e6'],
+    build(m) {
+      const { X, H, W } = m;
+      const colors = ['#6e3a32', '#2f4d66', '#3c6242', '#7c6230'];
+      m.floor(X(0.02), X(0.36), 3, 3, { color: '#2a2c30' }); m.floor(X(0.64), X(0.98), 3, 3, { color: '#2a2c30' });
+      const container = (x, y, i) => m.rect(x, y + 0.9, 4.4, 1.8, { dynamic: true, density: 1.6, color: colors[i % 4] });
+      container(X(0.1), 3, 0); container(X(0.1), 4.85, 1); container(X(0.25), 3, 2);
+      container(X(0.75), 3, 3); container(X(0.9), 3, 0); container(X(0.9), 4.85, 2);
+      // crane in the harbour gap with a container on two ropes
+      m.wall(W / 2, 0, H - 2, 0.9, { color: '#5d4b2c' });
+      m.floor(X(0.32), X(0.68), H - 1.4, 0.6, { color: '#5d4b2c' });
+      const hang = m.rect(X(0.36), H - 9, 4.4, 1.8, { dynamic: true, density: 1.2, color: colors[1], angularDamping: 1 });
+      m.rope(X(0.36) - 1.5, H - 1.7, hang, -1.8, 0.9); m.rope(X(0.36) + 1.5, H - 1.7, hang, 1.8, 0.9);
+      hang.setLinearVelocity(V(3, 0));
+      m.floor(X(0.44), X(0.49), 10, 0.4); m.floor(X(0.51), X(0.56), 10, 0.4);
+      m.spawnRow(X(0.03), X(0.34), 3); m.spawnRow(X(0.66), X(0.97), 3);
+    },
+  },
+  {
+    title: 'Chandelier', sky: ['#4a3f38', '#7d6a5a'], dark: true,
+    build(m) {
+      const { X, H } = m;
+      const top = H + 3;
+      m.floor(X(0.02), X(0.14), 7, 0.6); m.floor(X(0.86), X(0.98), 7, 0.6);
+      m.floor(X(0.02), X(0.1), 14, 0.6); m.floor(X(0.9), X(0.98), 14, 0.6);
+      m.spawnRow(X(0.03), X(0.13), 7); m.spawnRow(X(0.87), X(0.97), 7);
+      for (const [fx, y, w] of [[0.32, 9, 6], [0.68, 9, 6], [0.5, 15, 5]]) {
+        const x = X(fx);
+        const lamp = m.rect(x, y - 0.25, w, 0.5, { dynamic: true, density: 3, color: '#6b5a3a', angularDamping: 0.5 });
+        // both ropes meet at one point above: the chandelier tilts when you stand on one side
+        m.rope(x, top, lamp, -w * 0.45, 0.25);
+        m.rope(x, top, lamp, w * 0.45, 0.25);
+        m.spawnRow(x - w / 2 + 0.8, x + w / 2 - 0.8, y);
+      }
+    },
+  },
+  {
+    title: 'Rope Bridges', sky: ['#a7b5a8', '#d9e0d6'],
+    build(m) {
+      const { X, W } = m;
+      const left = m.block(X(0), 0, X(0.12), 8), right = m.block(X(0.88), 0, X(1), 8);
+      const pillar = m.block(X(0.46), 0, X(0.54), 12);
+      const hl = m.floor(X(0.02), X(0.14), 16, 0.6), hr = m.floor(X(0.86), X(0.98), 16, 0.6);
+      m.bridge(left, X(0.12), 7.9, pillar, X(0.46), 7.9);
+      m.bridge(pillar, X(0.54), 7.9, right, X(0.88), 7.9);
+      m.bridge(hl, X(0.14), 15.9, hr, X(0.86), 15.9, 1.6);
+      m.spawnRow(X(0.01), X(0.11), 8); m.spawnRow(X(0.89), X(0.99), 8); m.spawnRow(X(0.465), X(0.535), 12);
+      m.spawnRow(X(0.03), X(0.13), 16); m.spawnRow(X(0.87), X(0.97), 16);
+    },
+  },
+  {
+    title: 'Cliffs', sky: ['#b9a58c', '#e6d8c3'],
+    build(m) {
+      const { X, H } = m;
+      const rock = { color: '#3d3833' };
+      m.block(X(0), 0, X(0.18), 6, rock); m.block(X(0.18), 0, X(0.3), 4, rock);
+      m.block(X(0.36), 0, X(0.5), 7, rock); m.block(X(0.5), 0, X(0.62), 5, rock);
+      m.block(X(0.68), 0, X(0.82), 8, rock); m.block(X(0.82), 0, X(1), 5.5, rock);
+      m.floor(X(0.08), X(0.2), 12, 0.8, rock); m.floor(X(0.4), X(0.52), 14, 0.8, rock); m.floor(X(0.72), X(0.86), 15, 0.8, rock);
+      m.block(X(0.24), 4, X(0.24) + 1.3, 5.2, Object.assign({ hp: 120 }, rock));
+      m.block(X(0.56), 5, X(0.56) + 1.3, 6.2, Object.assign({ hp: 120 }, rock));
+      m.spawnRow(X(0.02), X(0.16), 6); m.spawnRow(X(0.38), X(0.48), 7); m.spawnRow(X(0.7), X(0.8), 8); m.spawnRow(X(0.84), X(0.98), 5.5);
+      let next = 6;
+      m.tick((t) => {
+        if (t < next) return;
+        next = t + 5 + Math.random() * 3;
+        const fromLeft = Math.random() < 0.5;
+        const b = m.circle(fromLeft ? X(0.03) : X(0.97), H + 2, 0.9 + Math.random() * 0.5, { dynamic: true, density: 2, color: '#57504a', restitution: 0.2 });
+        b.setLinearVelocity(V(fromLeft ? 5 : -5, -4));
+      });
+    },
+  },
+  {
+    title: 'Forest', sky: ['#9fb09a', '#d3ddcc'],
+    build(m) {
+      const { X, H } = m;
+      const wood = '#3b2f25', leaf = { color: '#2e3b2a' };
+      m.floor(X(0.03), X(0.3), 3, 3, leaf); m.floor(X(0.36), X(0.64), 3, 3, leaf); m.floor(X(0.7), X(0.97), 3, 3, leaf);
+      // trunks with branch platforms
+      for (const [fx, from] of [[0.14, 3], [0.5, 8], [0.86, 3]]) {
+        const x = X(fx);
+        m.wall(x, from, H - 2, 0.9, { color: wood });
+        for (const [dy, side, len] of [[6, -1, 4], [10, 1, 4.5], [14, -1, 3.5], [17.5, 1, 3]]) {
+          const y = from === 3 ? dy + 2 : dy + 1;
+          if (y > H - 3) continue;
+          m.floor(side < 0 ? x - 0.45 - len : x + 0.45, side < 0 ? x - 0.45 : x + 0.45 + len, y, 0.45, { color: wood, hp: 160 });
+        }
+      }
+      for (const fx of [0.25, 0.42, 0.58, 0.75]) m.rect(X(fx), 3.35, 3.4, 0.7, { dynamic: true, density: 1.5, color: '#4a3a2b', hp: 60 });
+      m.spawnRow(X(0.04), X(0.12), 3); m.spawnRow(X(0.18), X(0.29), 3); m.spawnRow(X(0.38), X(0.62), 3); m.spawnRow(X(0.72), X(0.84), 3); m.spawnRow(X(0.88), X(0.96), 3);
+    },
+  },
 ];
 
-module.exports = maps;
+// ---------------- categories (SFTG style: "Factory 1", "Factory 2", ...)
+const CATEGORIES = [
+  ['Factory', ['Factory', 'Sawmill', 'Construction', 'Conveyor', 'Press']],
+  ['Crates', ['Warehouse', 'Crate Rain', 'Crate Tower', 'Crate Pyramid', 'Harbour']],
+  ['Ropes', ['Hanging', 'Wood Bridge', 'Swings', 'Chandelier', 'Rope Bridges']],
+  ['Nature', ['Lava Cave', 'Iceberg', 'Moon', 'Cliffs', 'Forest']],
+  ['City', ['Rooftops', 'Lanterns', 'Windmill', 'Seesaw', 'Castle']],
+];
+const byTitle = new Map(maps.map(mp => [mp.title || mp.name, mp]));
+const ordered = [];
+for (const [cat, titles] of CATEGORIES) {
+  titles.forEach((title, i) => {
+    const mp = byTitle.get(title);
+    if (!mp) throw new Error('missing map ' + title);
+    mp.title = title;
+    mp.cat = cat;
+    mp.name = `${cat} ${i + 1}`;
+    ordered.push(mp);
+  });
+}
+
+
+module.exports = ordered;
+module.exports.CATEGORIES = CATEGORIES.map(c => c[0]);

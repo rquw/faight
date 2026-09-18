@@ -66,35 +66,43 @@ function build(game) {
       b.edges.push({ to: idxs[i - 1], cost: d, type: 'walk' });
     }
   }
-  for (let i = 0; i < nodes.length; i++) {
-    const a = nodes[i];
-    for (let j = 0; j < nodes.length; j++) {
-      const b = nodes[j];
-      if (i === j) continue;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      // same surface: only needed when something (a low wall) blocks walking between them
-      if (a.surface === b.surface && (Math.abs(dx) > 4 || a.edges.some(e => e.to === j))) continue;
-      if (Math.abs(dx) > MAX_JUMP_DX || dy < -MAX_DROP || dy > MAX_CLIMB) continue;
-      if (dy <= MAX_JUMP_UP) {
-        // try a few arc heights (low hop, full jump, over a parapet when dropping down)
-        const base = Math.max(a.y, b.y);
-        const peaks = dy > 0.3 ? [base + 2.3] : [base + 1.2, base + 2.3, a.y + 3.6];
-        const arc = peaks.find(peak => peak <= a.y + 4.4 && rayClear(world, a.x, a.y + 1, a.x, peak) && rayClear(world, a.x, peak, b.x, peak) && rayClear(world, b.x, peak, b.x, b.y + 1));
-        if (arc != null) {
-          a.edges.push({ to: j, cost: Math.abs(dx) + Math.max(0, dy) * 1.5 + (arc > base + 1.5 ? 2.5 : 1.5), type: dy > 0.3 || Math.abs(dx) > 1.5 || arc > base + 1.5 ? 'jump' : 'walk' });
-        } else if (dy < -0.5 && rayClear(world, a.x, a.y + 1, b.x, a.y + 1) && rayClear(world, b.x, a.y + 1, b.x, b.y + 1)) {
-          a.edges.push({ to: j, cost: Math.abs(dx) + 1, type: 'walk' });
-        }
-      } else if (Math.abs(dx) <= 3.2) {
-        // wall climb: something solid to cling to beside the climb column, clear column and room on top
-        const side = Math.sign(dx) || 1;
-        const midY = a.y + dy / 2;
-        let wall = false;
-        world.rayCast(V(a.x, midY), V(a.x + side * (Math.abs(dx) + 0.6), midY), (f) => { if (!isSolid(f)) return -1; wall = true; return 0; });
-        if (wall && rayClear(world, a.x, a.y + 1, a.x, b.y + 2.3) && rayClear(world, a.x, b.y + 2.3, b.x, b.y + 2.3)) {
-          a.edges.push({ to: j, cost: Math.abs(dx) + dy * 2.2 + 2, type: 'climb' });
-        }
+  // only node pairs that are close enough in x can ever be connected, so walk a sorted window
+  // instead of testing every pair (the ray casts inside dominate the build cost)
+  const connect = (i, j) => {
+    const a = nodes[i], b = nodes[j];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    // same surface: only needed when something (a low wall) blocks walking between them
+    if (a.surface === b.surface && (Math.abs(dx) > 4 || a.edges.some(e => e.to === j))) return;
+    if (Math.abs(dx) > MAX_JUMP_DX || dy < -MAX_DROP || dy > MAX_CLIMB) return;
+    if (dy <= MAX_JUMP_UP) {
+      // try a few arc heights (low hop, full jump, over a parapet when dropping down)
+      const base = Math.max(a.y, b.y);
+      const peaks = dy > 0.3 ? [base + 2.3] : [base + 1.2, base + 2.3, a.y + 3.6];
+      const arc = peaks.find(peak => peak <= a.y + 4.4 && rayClear(world, a.x, a.y + 1, a.x, peak) && rayClear(world, a.x, peak, b.x, peak) && rayClear(world, b.x, peak, b.x, b.y + 1));
+      if (arc != null) {
+        a.edges.push({ to: j, cost: Math.abs(dx) + Math.max(0, dy) * 1.5 + (arc > base + 1.5 ? 2.5 : 1.5), type: dy > 0.3 || Math.abs(dx) > 1.5 || arc > base + 1.5 ? 'jump' : 'walk' });
+      } else if (dy < -0.5 && rayClear(world, a.x, a.y + 1, b.x, a.y + 1) && rayClear(world, b.x, a.y + 1, b.x, b.y + 1)) {
+        a.edges.push({ to: j, cost: Math.abs(dx) + 1, type: 'walk' });
       }
+    } else if (Math.abs(dx) <= 3.2) {
+      // wall climb: something solid to cling to beside the climb column, clear column and room on top
+      const side = Math.sign(dx) || 1;
+      const midY = a.y + dy / 2;
+      let wall = false;
+      world.rayCast(V(a.x, midY), V(a.x + side * (Math.abs(dx) + 0.6), midY), (f) => { if (!isSolid(f)) return -1; wall = true; return 0; });
+      if (wall && rayClear(world, a.x, a.y + 1, a.x, b.y + 2.3) && rayClear(world, a.x, b.y + 2.3, b.x, b.y + 2.3)) {
+        a.edges.push({ to: j, cost: Math.abs(dx) + dy * 2.2 + 2, type: 'climb' });
+      }
+    }
+  };
+  const order = nodes.map((n, i) => i).sort((p, q) => nodes[p].x - nodes[q].x);
+  for (let oi = 0; oi < order.length; oi++) {
+    const i = order[oi];
+    for (let oj = oi + 1; oj < order.length; oj++) {
+      const j = order[oj];
+      if (nodes[j].x - nodes[i].x > MAX_JUMP_DX) break;
+      connect(i, j);
+      connect(j, i);
     }
   }
   return { nodes, dynamic: surfaces.some(s => s.body.getType() !== 'static'), builtAt: game.time };

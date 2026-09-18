@@ -24,7 +24,8 @@ class Bot {
 
   graph() {
     const g = this.game;
-    if (!g.nav || g.nav.world !== g.world || (g.nav.dynamic && g.time - g.nav.builtAt > 1.5)) {
+    // rebuilding costs a few ms, so dynamic maps refresh a few times per round, not twice a second
+    if (!g.nav || g.nav.world !== g.world || (g.nav.dynamic && g.time - g.nav.builtAt > 3.5)) {
       g.nav = nav.build(g);
       g.nav.world = g.world;
     }
