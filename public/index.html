@@ -17,10 +17,7 @@
   <div class="card">
     <h1 class="logo">f<span>aight</span></h1>
     <input id="name" maxlength="14" placeholder="Name" autocomplete="off" spellcheck="false">
-    <div class="row">
-      <button id="create" class="primary">Create room</button>
-      <div class="seg"><button id="vis-public" class="on">Public</button><button id="vis-private">Private</button></div>
-    </div>
+    <button id="create" class="primary">Create room</button>
     <div class="row">
       <input id="code" maxlength="4" inputmode="numeric" placeholder="Code" autocomplete="off">
       <button id="join">Join</button>
@@ -83,8 +80,6 @@
 
 <div id="chatbar" hidden><input id="chatin" maxlength="80" placeholder="Message… (Enter to send, Esc to cancel)" autocomplete="off" spellcheck="false"></div>
 <div id="chatlog"></div>
-
-<div id="knocks"></div>
 
 <div id="hud" hidden>
   <div id="room">ROOM <b id="roomcode"></b><button id="copy" title="Copy link">Link</button><button id="maps" title="Pick the next map (L)" hidden>Maps</button><div id="queued"></div><div id="ping"></div></div>

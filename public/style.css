@@ -99,24 +99,15 @@ body.touch .score { font-size: 11px; }
 #howto p b { color: #eee; background: #2a2a2a; border-radius: 3px; padding: 0 4px; }
 #howto.show { display: block; }
 
-.seg { display: flex; border: 2px solid #333; border-radius: 6px; overflow: hidden; }
-.seg button { font-size: 11px; padding: 0 10px; background: #1a1a1a; color: #888; border-radius: 0; letter-spacing: 1px; }
-.seg button.on { background: #333; color: #eee; }
 #lobby { display: flex; flex-direction: column; gap: 6px; max-height: 32vh; overflow-y: auto; }
 .lobby-card { display: flex; align-items: center; gap: 10px; background: #1a1a1a; border: 2px solid #2a2a2a;
   border-radius: 6px; padding: 8px 10px; font-family: Arial, sans-serif; cursor: pointer; }
 .lobby-card:hover { border-color: #f2c12e; }
 .lobby-card .lc { font-family: "Arial Black", Arial, sans-serif; font-size: 17px; letter-spacing: 2px; color: #f2c12e; min-width: 56px; }
-.lobby-card .lc.priv { color: #777; font-size: 13px; letter-spacing: 1px; }
+.lobby-card.full { opacity: 0.55; }
+.lobby-card.full:hover { border-color: #2a2a2a; cursor: default; }
 .lobby-card .li { flex: 1; min-width: 0; font-size: 12px; color: #999; }
 .lobby-card .li b { display: block; color: #ddd; font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lobby-card .lj { font-size: 10px; padding: 6px 9px; }
 .lobby-empty { font-family: Arial, sans-serif; font-size: 12px; color: #666; text-align: center; padding: 6px 0; }
 
-#knocks { position: fixed; top: 44px; right: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 6; font-family: Arial, sans-serif; }
-.knock { display: flex; align-items: center; gap: 8px; background: rgba(20,20,20,0.95); border: 2px solid #333;
-  border-radius: 6px; padding: 7px 9px; font-size: 12px; color: #ddd; }
-.knock b { color: #f2c12e; }
-.knock button { font-size: 10px; padding: 5px 8px; }
-.knock .yes { background: #2f7d43; color: #fff; }
-.knock .no { background: #3a3a3a; }
