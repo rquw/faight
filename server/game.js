@@ -516,7 +516,7 @@ class Game {
     if (this.state !== 'play' || !this.world) return;
     this.tickN++;
     this.time += DT;
-    this.soundBudget = 10;
+    this.soundBudget = 4;
     this.slow = Math.max(0, (this.slow || 0) - DT);
     const dt = this.dt = this.slow > 0 ? DT * 0.3 : DT;
     this.freeze = Math.max(0, this.freeze - DT);
@@ -570,9 +570,9 @@ class Game {
     this.cleanup();
     this.roundLogic();
 
-    // small rooms get the full 60 per second (every snapshot the client waits for is input delay),
-    // bigger ones are thinned out to keep bandwidth and CPU in check
-    const every = this.chars.length > 12 ? 3 : this.chars.length > 6 ? 2 : 1;
+    // 30 snapshots per second (20 in big rooms): with interpolation and local prediction that looks
+    // the same as 60 and halves the traffic, which is what the free bandwidth budget cares about
+    const every = this.chars.length > 12 ? 3 : 2;
     if (this.tickN % every === 0) this.sendSnapshot();
   }
 
@@ -627,6 +627,7 @@ class Game {
     for (const c of this.chars) {
       if (!c.alive && !c.gone && c.chest.getPosition().y < -30) {
         c.gone = true;
+        this.event(['gone', c.player.id]);
         for (const b of c.bodies) this.world.destroyBody(b);
       }
     }
@@ -964,29 +965,33 @@ class Game {
     for (const c of this.chars) {
       if (c.gone) continue;
       const hp = c.hip.getPosition();
-      players.push({
+      const row = {
         id: c.player.id, alive: c.alive, stun: c.stun > 0, aim: c.aim,
         wIdx: c.weapon ? C.ORDER.indexOf(c.weapon.type) : -1, ammo: c.weapon ? c.weapon.ammo : 0,
         hipX: hp.x, hipY: hp.y, angles: c.bodies.map(b => b.getAngle()),
-      });
+      };
+      // a body that is holding still (standing, or a ragdoll that came to rest) needs no update;
+      // the client keeps its last pose. Saves a lot once people are dead or idle.
+      const p = c.sent;
+      const still = p && p.alive === row.alive && p.stun === row.stun && p.wIdx === row.wIdx && p.ammo === row.ammo
+        && Math.abs(p.aim - row.aim) < 0.01 && Math.abs(p.hipX - row.hipX) < 0.012 && Math.abs(p.hipY - row.hipY) < 0.012
+        && row.angles.every((a, i) => Math.abs(a - p.angles[i]) < 0.025);
+      if (still && this.tickN - c.sentAt < 120) continue;
+      c.sent = row; c.sentAt = this.tickN;
+      players.push(row);
     }
-    const props = [], sleepers = [];
+    const props = [];
     for (const [id, b] of this.props) {
       const t = b.getType();
       if (t === 'static') continue;
-      if (t === 'dynamic' && !b.isAwake()) { sleepers.push(id); continue; }
+      const u = b.getUserData();
+      if (t === 'dynamic' && !b.isAwake()) {
+        // a prop that just fell asleep is sent three more times so everyone has its final pose,
+        // after that it costs nothing until something wakes it again
+        if ((u.settled = (u.settled || 0) + 1) > 3) continue;
+      } else u.settled = 0;
       const q = b.getPosition();
       props.push([id, q.x, q.y, b.getAngle()]);
-    }
-    // sleeping props are refreshed a few at a time instead of all at once every second (no spikes)
-    if (sleepers.length) {
-      const n = Math.min(20, sleepers.length);
-      for (let k = 0; k < n; k++) {
-        const id = sleepers[(this.sleepCursor + k) % sleepers.length];
-        const b = this.props.get(id), q = b.getPosition();
-        props.push([id, q.x, q.y, b.getAngle()]);
-      }
-      this.sleepCursor = (this.sleepCursor + n) % sleepers.length;
     }
     const items = [];
     for (const it of this.items.values()) {

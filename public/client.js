@@ -27,6 +27,7 @@ let banner = null, fade = 0;
 const hitFlash = new Map();
 const hpShow = new Map();
 const protect = new Map();
+const goneIds = new Set();
 let hostId = 0, queuedMap = null, mapNames = [], mapCats = [], slowUntil = 0, suddenT = 0;
 let muted = false;
 
@@ -379,7 +380,7 @@ function onMessage(m) {
       map.shapeById = new Map(m.shapes.map(sh => [sh.id, sh]));
       mapSerial++;
       mapT = 0;
-      snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear(); protect.clear();
+      snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear(); protect.clear(); goneIds.clear();
       fade = 1;
       sfx('start');
       banner = null;
@@ -431,6 +432,9 @@ function onSnap(s) {
   if (clockOffset === null || !snaps.length || off > clockOffset) clockOffset = off;
   else clockOffset -= Math.min(0.0006, (clockOffset - off) * 0.05);
   const snap = { t, P: new Map(), O: new Map(), I: new Map(), R: new Map() };
+  // players that did not move are left out of a snapshot: carry their last pose over
+  const prev = snaps[snaps.length - 1];
+  if (prev) for (const [id, row] of prev.P) { if (!goneIds.has(id) && roster.has(id)) snap.P.set(id, row); }
   for (const p of s.P) snap.P.set(p[0], p);
   for (const o of s.O) snap.O.set(o[0], o);
   for (const i of s.I) snap.I.set(i[0], i);
@@ -888,8 +892,10 @@ function handleEvent(e) {
       sfx('snap', e[2]);
     } break;
     case 'hp': hpShow.set(e[1], { hp: e[2], t: 1 }); break;
+    case 'gone': goneIds.add(e[1]); for (const s of snaps) s.P.delete(e[1]); break;
     case 'spawn': {
       const [, id, x, y] = e;
+      goneIds.delete(id);
       protect.set(id, 1.2);
       spawnParticles(x, y + 1, 14, { speed: 6, life: 0.5, size: 0.11, color: colorOf(id), g: 0.3 });
       rings.push({ x, y: y + 1, r: 0.3, grow: 7, life: 0.3, max: 0.3, w: 0.12 });
