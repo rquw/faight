@@ -462,7 +462,7 @@ class Game {
     const ba = fa.getBody(), bb = fb.getBody();
     const va = ba.getLinearVelocity(), vb = bb.getLinearVelocity();
     const rel = Math.hypot(va.x - vb.x, va.y - vb.y);
-    if (rel < 4.5) return;
+    if (rel < 6) return;                  // only real impacts are worth a packet
     const ua = ba.getUserData() || {}, ub = bb.getUserData() || {};
     const t = this.time;
     const pick = (u, b) => {
@@ -477,7 +477,7 @@ class Game {
       if (!kind) continue;
       if (kind === 'thump' && other.kind === 'part' && other.char === u.char) continue;
       const owner = kind === 'thump' ? u.char : u;
-      if (t - (owner.lastSound || -1) < 0.12) continue;
+      if (t - (owner.lastSound || -1) < (kind === 'thump' ? 0.3 : 0.22)) continue;
       owner.lastSound = t;
       const p = b.getPosition(), strength = Math.min(1, rel / 18);
       if (kind === 'clunk') this.event(['clunk', r2(p.x), r2(p.y), r2(strength), u.desc && u.desc.s === 'c' ? 1 : 0]);
@@ -523,7 +523,7 @@ class Game {
     if (this.state !== 'play' || !this.world) return;
     this.tickN++;
     this.time += DT;
-    this.soundBudget = 4;
+    this.soundBudget = 3;
     this.slow = Math.max(0, (this.slow || 0) - DT);
     const dt = this.dt = this.slow > 0 ? DT * 0.3 : DT;
     this.freeze = Math.max(0, this.freeze - DT);
