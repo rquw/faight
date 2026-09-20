@@ -1,13 +1,13 @@
 (() => {
 'use strict';
-const WEAPONS = ['pistol', 'ar', 'shotgun', 'sniper', 'rpg', 'minigun', 'grenade'];
+const WEAPONS = ['pistol', 'ar', 'shotgun', 'sniper', 'rpg', 'minigun', 'grenade', 'laser'];
 // half lengths per body: hip, chest, head, ua0, la0, ua1, la1, ul0, ll0, ul1, ll1
 const HH = [0.17, 0.2, 0, 0.17, 0.16, 0.17, 0.16, 0.23, 0.23, 0.23, 0.23];
 const HEAD_R = 0.27, LW = 0.2;
 let INTERP = 0.1, snapGap = 1 / 30, lastSnapAt = 0, jitter = 0.02;
-const KICK = { pistol: 2.2, ar: 1.1, shotgun: 6, sniper: 9, rpg: 6, minigun: 2.6, grenade: 0.5 };
+const KICK = { pistol: 2.2, ar: 1.1, shotgun: 6, sniper: 9, rpg: 6, minigun: 2.6, grenade: 0.5, laser: 3 };
 // distance from the hand to the drawn barrel tip - shots, the laser and the grenade arc start there
-const BARREL = { pistol: 0.4, ar: 0.82, shotgun: 0.86, sniper: 1.2, rpg: 1.08, minigun: 1.06, grenade: 0.2 };
+const BARREL = { pistol: 0.4, ar: 0.82, shotgun: 0.86, sniper: 1.2, rpg: 1.08, minigun: 1.06, grenade: 0.2, laser: 1.0 };
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c');
@@ -28,6 +28,7 @@ const hitFlash = new Map();
 const hpShow = new Map();
 const protect = new Map();
 const goneIds = new Set();
+let lastKill = null, killcam = null;
 let hostId = 0, queuedMap = null, mapNames = [], mapCats = [], slowUntil = 0, suddenT = 0;
 let muted = false;
 
@@ -114,6 +115,9 @@ function renderLobby(list) {
 }
 lobbyPoll();
 
+// keep the shell and the sounds in the browser cache - saves the server a lot of traffic
+if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+
 // iOS Safari cannot hide its own bars; installing the page to the home screen can
 const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches;
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -165,6 +169,71 @@ chatIn.addEventListener('keydown', (e) => {
     closeChat();
   } else if (e.key === 'Escape') closeChat();
 });
+// quick chat + emotes: the only way to talk on a phone, and faster than typing on a keyboard
+const EMOTES = ['👋', '😂', '💀', '👍', '😡', '🤡', '❤️', '🫡'];
+const QUICKS = ['gg', 'lol', 'sorry', 'help!', 'behind you', 'nice shot'];
+function buildQuick() {
+  const em = $('quick-emotes'), ms = $('quick-msgs');
+  if (em.children.length) return;
+  EMOTES.forEach((e, i) => {
+    const b = document.createElement('button');
+    b.textContent = e;
+    b.onclick = () => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'emote', i })); closeQuick(); };
+    em.appendChild(b);
+  });
+  QUICKS.forEach((t) => {
+    const b = document.createElement('button');
+    b.textContent = t;
+    b.onclick = () => { sendChat(t); closeQuick(); };
+    ms.appendChild(b);
+  });
+}
+function sendChat(text) {
+  const clean = String(text || '').trim();
+  if (clean && ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'chat', text: clean }));
+}
+function openQuick() {
+  if (!myId) return;
+  buildQuick();
+  for (const k in keys) keys[k] = 0;
+  sendInput();
+  $('quick').hidden = false;
+  if (!touchMode) $('quick-in').focus();
+}
+function closeQuick() { $('quick').hidden = true; $('quick-in').value = ''; $('quick-in').blur(); }
+$('talk').onclick = () => ($('quick').hidden ? openQuick() : closeQuick());
+$('quick-close').onclick = closeQuick;
+$('quick-send').onclick = () => { sendChat($('quick-in').value); closeQuick(); };
+$('quick-in').addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Enter') { sendChat($('quick-in').value); closeQuick(); }
+  else if (e.key === 'Escape') closeQuick();
+});
+addEventListener('keydown', (e) => {
+  if (!myId || e.target.tagName === 'INPUT' || e.repeat) return;
+  const n = '12345678'.indexOf(e.key);
+  if (n >= 0 && ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'emote', i: n }));
+});
+
+// ---- kill feed
+function feedRow(html) {
+  const row = document.createElement('div');
+  row.className = 'feed-row';
+  row.innerHTML = html;
+  $('feed').appendChild(row);
+  while ($('feed').children.length > 5) $('feed').firstChild.remove();
+  setTimeout(() => { row.style.opacity = '0'; }, 4200);
+  setTimeout(() => row.remove(), 4800);
+}
+const CAUSE_ICON = ['💀', '🔫', '👊', '💥', '☠️'];
+function killFeed(victimId, killerId, cause) {
+  const v = roster.get(victimId), k = roster.get(killerId);
+  const name = (r) => r ? `<b style="color:${r.color}">${escapeText(r.name)}</b>` : '?';
+  if (k && killerId !== victimId) feedRow(`${name(k)}<i>${CAUSE_ICON[cause] || '💀'}</i>${name(v)}`);
+  else feedRow(`<i>${CAUSE_ICON[cause] || '💀'}</i>${name(v)}`);
+}
+const escapeText = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
 function chatLog(id, text) {
   const r = roster.get(id);
   const row = document.createElement('div');
@@ -369,7 +438,7 @@ function onMessage(m) {
       map.shapeById = new Map(m.shapes.map(sh => [sh.id, sh]));
       mapSerial++;
       mapT = 0;
-      snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear(); protect.clear(); goneIds.clear();
+      snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear(); protect.clear(); goneIds.clear(); killcam = null; lastKill = null;
       fade = 1;
       sfx('start');
       banner = null;
@@ -415,7 +484,7 @@ function onSnap(s) {
   for (const i of s.I) snap.I.set(i[0], i);
   for (const r of s.R) snap.R.set(r[0], r);
   snaps.push(snap);
-  if (snaps.length > 30) snaps.shift();
+  if (snaps.length > 110) snaps.shift();   // ~3.5 s of history, enough for the kill cam
   // sleeping props aren't resent every time: remember their last pose
   for (const o of s.O) { const sh = map.shapeById.get(o[0]); if (sh) { sh.x = o[1] / 100; sh.y = o[2] / 100; sh.a = o[3] / 100; } }
 }
@@ -448,9 +517,9 @@ function predictLocal(players, dt) {
 const lerp = (a, b, k) => a + (b - a) * k;
 const lerpA = (a, b, k) => { let d = b - a; d -= Math.PI * 2 * Math.round(d / (Math.PI * 2)); return a + d * k; };
 
-function sample() {
+function sample(forceRt) {
   if (!snaps.length) return null;
-  const rt = performance.now() / 1000 + clockOffset - INTERP;
+  const rt = forceRt != null ? forceRt : performance.now() / 1000 + clockOffset - INTERP;
   let a = snaps[0], b = snaps[0];
   for (let i = snaps.length - 1; i >= 0; i--) {
     if (snaps[i].t <= rt) { a = snaps[i]; b = snaps[i + 1] || snaps[i]; break; }
@@ -517,6 +586,9 @@ let touchMode = false, myPos = null, livePlayers = [];
 const AUTO_W = { ar: 1, minigun: 1 };
 const touch = { move: null, aim: null, jump: null, drop: null, aimDir: null, tapDir: null, face: 1, aimPull: 0, flick: true, firing: false };
 dbg.touch = touch; dbg.keys = keys;
+Object.defineProperty(dbg, 'killcam', { get: () => killcam });
+Object.defineProperty(dbg, 'players', { get: () => livePlayers });
+dbg.toScreen = (x, y) => ({ x: sx(x), y: sy(y) });
 const touchLayer = document.createElement('div');
 touchLayer.id = 'touch';
 touchLayer.hidden = true;
@@ -849,6 +921,15 @@ function handleEvent(e) {
       bullets.set(id, { x: x + (sh ? sh.dx : 0), y: y + (sh ? sh.dy : 0), vx, vy, life, w: WEAPONS[w], trail: [] });
       break;
     }
+    case 'br': {   // laser bounced off a wall
+      const [, id, x, y, vx, vy] = e;
+      const b = bullets.get(id);
+      if (b) { b.x = x; b.y = y; b.vx = vx; b.vy = vy; }
+      spawnParticles(x, y, 5, { speed: 7, life: 0.22, size: 0.07, color: '#7dfff0', g: 0.2 });
+      rings.push({ x, y, r: 0.05, grow: 3.5, life: 0.16, max: 0.16, w: 0.06 });
+      sfx('zap', x);
+      break;
+    }
     case 'bh': {
       const [, id, x, y, victim] = e;
       const b = bullets.get(id);
@@ -914,7 +995,9 @@ function handleEvent(e) {
     case 'clink': sfx('clink', e[1], e[3], 'clink' + Math.round(e[1])); break;
     case 'toss': sfx('toss', e[1]); break;
     case 'die': {
-      const [, id, x, y] = e;
+      const [, id, x, y, killer, cause] = e;
+      killFeed(id, killer, cause);
+      lastKill = { t: performance.now(), shot: cause === 1, id };
       spawnParticles(x, y, 18, { speed: 8, life: 0.8, size: 0.13, color: colorOf(id) });
       kick((Math.random() - 0.5), (Math.random() - 0.5), 0.35);
       sfx('die', x);
@@ -947,6 +1030,10 @@ function handleEvent(e) {
     }
     case 'slow': slowUntil = performance.now() + e[1] * 1000; break;
     case 'sudden': suddenT = 2.5; sfx('sudden'); kick(0, 1, 0.3); break;
+    case 'emote':
+      chatBubbles.set(e[1], { text: EMOTES[e[2]] || '👋', t: 2.6, big: true });
+      sfx('chat');
+      break;
     case 'chat':
       chatBubbles.set(e[1], { text: e[2], t: 5 });
       chatLog(e[1], e[2]);
@@ -954,8 +1041,16 @@ function handleEvent(e) {
       break;
     case 'win': {
       const r = roster.get(e[1]);
-      banner = { name: r ? r.name : '', color: r ? r.color : '#dddddd', draw: !r, t: 0 };
-      sfx('win');
+      const b = { name: r ? r.name : '', color: r ? r.color : '#dddddd', draw: !r, t: 0 };
+      // a kill cam only for the last kill being an actual shot - falls and lava are not worth it
+      if (lastKill && lastKill.shot && performance.now() - lastKill.t < 800 && snaps.length > 20) {
+        const now = performance.now() / 1000 + clockOffset - INTERP;
+        killcam = { at: performance.now(), from: Math.max(snaps[0].t, now - 0.9), to: now, banner: b };
+        sfx('slowmo');
+      } else {
+        banner = b;
+        sfx('win');
+      }
       break;
     }
   }
@@ -1275,6 +1370,14 @@ function drawGun(type, S) {
       ctx.fillStyle = '#4a4034'; g(-0.36, -0.42, 0.36, 0.26);      // ammo drum
       ctx.fillStyle = '#2a2d31'; g(-0.05, -0.36, 0.11, 0.2);       // grip
       break;
+    case 'laser':
+      ctx.fillStyle = '#2b3138'; g(-0.34, -0.06, 1.0, 0.16);        // body
+      ctx.fillStyle = '#3d4650'; g(-0.5, -0.1, 0.2, 0.22);          // stock
+      ctx.fillStyle = '#19d6c8'; g(0.1, 0.1, 0.42, 0.05);           // glowing coil
+      ctx.fillStyle = '#19d6c8'; g(0.66, -0.04, 0.3, 0.12);         // emitter
+      ctx.fillStyle = '#0f8f88'; g(0.94, -0.02, 0.08, 0.08);
+      ctx.fillStyle = '#2a2d31'; poly(-0.04, -0.06, 0.1, -0.06, 0.05, -0.3, -0.09, -0.3);
+      break;
     case 'grenade':
       ctx.fillStyle = '#41502f'; ctx.beginPath(); ctx.arc(0.06 * S, 0, 0.16 * S, 0, 7); ctx.fill();
       ctx.fillStyle = DARK; g(0.0, 0.12, 0.12, 0.07);              // fuse
@@ -1480,8 +1583,13 @@ function render(nowMs) {
   if (!map) { drawMenuBg(time); return; }
   mapT += dt;
   const edt = nowMs < slowUntil ? dt * 0.3 : dt;   // effects follow the server's slow motion
-  const smp = sample();
-  if (smp) processEvents(smp.rt);
+  let smp;
+  if (killcam) {
+    const rt = killcam.from + (nowMs - killcam.at) / 1000 * 0.45;   // slow motion replay (~2 s)
+    if (rt >= killcam.to) { banner = killcam.banner; killcam = null; pendingEvents.length = 0; sfx('win'); smp = sample(); }
+    else smp = sample(rt);
+  } else smp = sample();
+  if (smp && !killcam) processEvents(smp.rt);
   const A = smp && smp.a, B = smp && smp.b, k = smp ? smp.k : 0;
 
   // interpolate players
@@ -1610,9 +1718,9 @@ function render(nowMs) {
   for (const [id, b] of bullets) {
     b.x += b.vx * edt; b.y += b.vy * edt; b.life -= edt;
     if (b.life <= 0) { bullets.delete(id); continue; }
-    const len = b.w === 'sniper' ? 0.06 : 0.035;
-    ctx.strokeStyle = b.w === 'sniper' ? 'rgba(255,255,240,0.95)' : 'rgba(255,240,190,0.9)';
-    ctx.lineWidth = Math.max(1.5, (b.w === 'sniper' ? 0.1 : 0.07) * cam.s);
+    const len = b.w === 'sniper' ? 0.06 : b.w === 'laser' ? 0.09 : 0.035;
+    ctx.strokeStyle = b.w === 'laser' ? 'rgba(90,255,240,0.95)' : b.w === 'sniper' ? 'rgba(255,255,240,0.95)' : 'rgba(255,240,190,0.9)';
+    ctx.lineWidth = Math.max(1.5, (b.w === 'sniper' ? 0.1 : b.w === 'laser' ? 0.09 : 0.07) * cam.s);
     ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(sx(b.x - b.vx * len), sy(b.y - b.vy * len)); ctx.lineTo(sx(b.x), sy(b.y)); ctx.stroke();
   }
@@ -1676,6 +1784,7 @@ function render(nowMs) {
       if (b.t <= 0 || !h) { if (b.t <= 0) chatBubbles.delete(id); continue; }
       // wrap into lines of at most ~200px
       if (!b.lines) {
+        ctx.font = b.big ? '700 26px Arial, sans-serif' : '700 13px Arial, sans-serif';
         b.lines = [];
         let line = '';
         for (const word of b.text.split(' ')) {
@@ -1685,7 +1794,8 @@ function render(nowMs) {
         if (line) b.lines.push(line);
         b.w = Math.min(220, Math.max(...b.lines.map(l => ctx.measureText(l).width))) + 16;
       }
-      const lh = 16, bh = b.lines.length * lh + 10;
+      ctx.font = b.big ? '700 26px Arial, sans-serif' : '700 13px Arial, sans-serif';
+      const lh = b.big ? 30 : 16, bh = b.lines.length * lh + 10;
       const x = sx(h.hx) + cam.ox * cam.s, bottom = sy(h.hy + 0.75) + cam.oy * cam.s;
       const top = bottom - bh;
       ctx.globalAlpha = Math.min(1, b.t / 0.4);
@@ -1730,6 +1840,19 @@ function render(nowMs) {
     ctx.fillStyle = 'rgba(10,10,10,0.7)'; ctx.fillRect(0, H * 0.18 - fs * 0.8, W, fs * 1.6);
     ctx.fillStyle = '#ff6b5e'; ctx.fillText('SUDDEN DEATH', W / 2, H * 0.18);
     ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
+  }
+
+  // kill cam framing
+  if (killcam) {
+    const h = Math.min(54, H * 0.1);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, h); ctx.fillRect(0, H - h, W, h);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ff6b5e'; ctx.font = `900 ${Math.round(h * 0.42)}px "Arial Black", Arial, sans-serif`;
+    ctx.fillText('KILLCAM', W / 2, h / 2);
+    ctx.fillStyle = '#888'; ctx.font = `700 ${Math.round(h * 0.26)}px Arial, sans-serif`;
+    ctx.fillText('the shot that ended it', W / 2, H - h / 2);
+    ctx.textBaseline = 'alphabetic';
   }
 
   // round winner
@@ -1892,10 +2015,12 @@ const RACK = {
             () => { click(3600, 0.45, 0.03); thump(320, 280, 0.08, 0.08, 'sawtooth'); }],
   grenade: [() => { click(5200, 0.35); thump(2100, 1900, 0.05, 0.08, 'triangle'); },
             () => { thump(3200, 2600, 0.12, 0.1, 'triangle'); click(6000, 0.3); }],
+  laser:   [() => { thump(400, 1600, 0.25, 0.14, 'triangle'); },
+            () => { thump(1800, 2600, 0.1, 0.16, 'triangle'); click(5000, 0.25); }],
 };
 
 // heavier guns rack lower and slower
-const RACK_RATE = { pistol: 1.25, ar: 1.1, shotgun: 0.8, sniper: 0.85, rpg: 0.7, minigun: 0.9, grenade: 1.35 };
+const RACK_RATE = { pistol: 1.25, ar: 1.1, shotgun: 0.8, sniper: 0.85, rpg: 0.7, minigun: 0.9, grenade: 1.35, laser: 1.5 };
 
 const sfxLast = {};
 let sfxWindow = 0, sfxCount = 0;
@@ -1921,6 +2046,8 @@ function sfx(name, x, arg, key = name) {
     case 'sniper': noise(0.7, 4000, 0.5, 1, 'lowpass', 150); thump(180, 30, 0.35, 0.9); sndDelay = 0.25; noise(0.5, 900, 0.5, 0.25, 'lowpass', 120, 0.05); break;
     case 'rpg': noise(0.5, 700, 0.8, 0.6, 'lowpass', 2200, 0.03); thump(90, 40, 0.2, 0.5); break;
     case 'grenade': noise(0.12, 900, 1, 0.25, 'bandpass', 300); break;
+    case 'laser': noise(0.1, 2600, 3, 0.35, 'bandpass', 700, 0.005); thump(1400, 260, 0.16, 0.45, 'sawtooth'); sndDelay = 0.02; thump(2600, 900, 0.1, 0.16, 'triangle'); break;
+    case 'zap': thump(2200 * (0.85 + Math.random() * 0.3), 700, 0.07, 0.16, 'triangle'); noise(0.05, 4000, 5, 0.12, 'bandpass', 1500); break;
     case 'rackA': if (!smp('rackA', 0.9, RACK_RATE[k] || 1)) RACK[k][0](); break;
     case 'rackB': if (!smp('rackB', 1.0, RACK_RATE[k] || 1)) RACK[k][1](); break;
     case 'boom': noise(1.4, 1200, 0.6, 1.3, 'lowpass', 40); thump(80, 22, 0.9, 1.1); sndDelay = 0.12; noise(1.2, 500, 0.5, 0.35, 'lowpass', 60, 0.1); break;
@@ -1955,6 +2082,7 @@ function sfx(name, x, arg, key = name) {
     case 'start': noise(0.9, 200, 0.7, 0.25, 'lowpass', 2000, 0.6); thump(55, 45, 0.9, 0.25); break;
     case 'sudden': thump(70, 40, 1.2, 0.5, 'sawtooth'); noise(1.2, 300, 0.7, 0.35, 'lowpass', 1500, 0.3); break;
     case 'spawn': thump(300, 900, 0.14, 0.2, 'triangle'); noise(0.12, 2000, 2, 0.14, 'bandpass', 4000, 0.02); break;
+    case 'slowmo': thump(600, 90, 0.9, 0.3, 'sawtooth'); noise(0.7, 1800, 1, 0.18, 'lowpass', 300, 0.1); break;
     case 'win': thump(220, 110, 0.6, 0.35); noise(0.8, 3000, 0.5, 0.15, 'highpass', 8000, 0.2); break;
   }
   sndPan = 0; sndDelay = 0;

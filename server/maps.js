@@ -553,6 +553,96 @@ const maps = [
       m.spawnRow(X(0.04), X(0.12), 3); m.spawnRow(X(0.18), X(0.29), 3); m.spawnRow(X(0.38), X(0.62), 3); m.spawnRow(X(0.72), X(0.84), 3); m.spawnRow(X(0.88), X(0.96), 3);
     },
   },
+  // ---------------- chaos: everything swings, spins, bounces or falls apart
+  {
+    title: 'Wrecking Balls', sky: ['#8f8a86', '#d6d2cb'],
+    build(m) {
+      const { X, H } = m;
+      m.floor(X(0.02), X(0.26), 5, 3); m.floor(X(0.74), X(0.98), 5, 3);
+      m.floor(X(0.36), X(0.64), 9, 0.6);
+      m.floor(X(0.3), X(0.36), 6.5, 0.5); m.floor(X(0.64), X(0.7), 6.5, 0.5);
+      const cnt = 3 + Math.floor(m.n / 5);
+      for (let i = 0; i < cnt; i++) {
+        const x = X(0.22 + (0.56 * i) / Math.max(1, cnt - 1));
+        const ball = m.circle(x, H - 9, 1.15, { dynamic: true, density: 9, color: '#3a3d42' });
+        m.rope(x, H - 1, ball, 0, 0, 1.02);
+        ball.setLinearVelocity(V((i % 2 ? 9 : -9), 0));
+      }
+      m.spawnRow(X(0.03), X(0.25), 5); m.spawnRow(X(0.75), X(0.97), 5); m.spawnRow(X(0.38), X(0.62), 9);
+    },
+  },
+  {
+    title: 'Pendulums', sky: ['#9aa3ad', '#dfe3e6'],
+    build(m) {
+      const { X, H } = m;
+      m.floor(X(0.02), X(0.2), 4, 2.5); m.floor(X(0.8), X(0.98), 4, 2.5);
+      const top = H - 0.8;
+      m.floor(X(0.18), X(0.82), top, 0.6);
+      const cnt = 5 + Math.floor(m.n / 4);
+      for (let i = 0; i < cnt; i++) {
+        const x = X(0.24 + (0.52 * i) / Math.max(1, cnt - 1));
+        const len = 7 + (i % 3) * 2.5;
+        const plank = m.rect(x, top - len, 4.2, 0.4, { dynamic: true, density: 3, color: '#4b4038', angularDamping: 1.8, hp: 70 });
+        m.rope(x, top - 0.4, plank, 0, 0.2, 1.01);
+        plank.setLinearVelocity(V((i % 2 ? 3.5 : -3.5), 0));
+      }
+      // spawns stay on solid ground - landing on a swinging plank is something you do on purpose
+      m.floor(X(0.36), X(0.64), 7, 0.6);
+      m.spawnRow(X(0.03), X(0.19), 4); m.spawnRow(X(0.81), X(0.97), 4); m.spawnRow(X(0.38), X(0.62), 7);
+    },
+  },
+  {
+    title: 'Collapse', sky: ['#a6957f', '#e0d6c4'],
+    build(m) {
+      const { X, H } = m;
+      m.floor(X(0.02), X(0.16), 6, 3); m.floor(X(0.84), X(0.98), 6, 3);
+      // the whole middle is made of planks that drop away one after another
+      for (let i = 0; i < 14; i++) {
+        const x0 = X(0.17) + i * (X(0.83) - X(0.17)) / 14;
+        m.block(x0, 5.4, x0 + (X(0.83) - X(0.17)) / 14 - 0.15, 6, { color: '#6b5442', breakAt: 9 + i * 1.6 + Math.random() * 2 });
+      }
+      for (let i = 0; i < 6; i++) {
+        const x = X(0.24 + i * 0.105);
+        m.block(x - 1.6, 11, x + 1.6, 11.5, { color: '#6b5442', breakAt: 16 + i * 2.2 + Math.random() * 3 });
+      }
+      m.crates(X(0.5), 12, 3, 2, 1);
+      m.spawnRow(X(0.03), X(0.15), 6); m.spawnRow(X(0.85), X(0.97), 6); m.spawnRow(X(0.25), X(0.75), 6);
+    },
+  },
+  {
+    title: 'Rotors', sky: ['#7e8a93', '#cfd8dc'], 
+    build(m) {
+      const { X, W, H } = m;
+      m.floor(X(0.02), X(0.18), 5, 2.5); m.floor(X(0.82), X(0.98), 5, 2.5);
+      m.floor(X(0.44), X(0.56), 3.5, 0.6);
+      const spin = [];
+      for (const [fx, fy, len, speed] of [[0.3, 0.42, 9, 1.4], [0.5, 0.62, 11, -0.9], [0.7, 0.42, 9, 1.8]]) {
+        const x = X(fx), y = H * fy;
+        const bar = m.rect(x, y, len, 0.7, { kinematic: true, color: '#4d5257' });
+        m.circle(x, y, 0.7, { color: '#31363a' });
+        spin.push([bar, speed]);
+      }
+      m.tick((t) => { for (const [bar, sp] of spin) bar.setAngularVelocity(sp * (0.6 + 0.5 * Math.sin(t * 0.35 + sp))); });
+      m.spawnRow(X(0.03), X(0.17), 5); m.spawnRow(X(0.83), X(0.97), 5);
+    },
+  },
+  {
+    title: 'Trampolines', sky: ['#9d7f9e', '#e4d6e6'],
+    build(m) {
+      const { X, H } = m;
+      m.floor(X(0.02), X(0.98), 2.5, 2.5, { color: '#2c2a31' });
+      for (const fx of [0.12, 0.32, 0.5, 0.68, 0.88]) {
+        m.block(X(fx) - 2.6, 2.5, X(fx) + 2.6, 3.1, { bounce: 1, restitution: 1.25, color: '#d8536b' });
+      }
+      for (const [fx, y] of [[0.22, 9], [0.5, 12.5], [0.78, 9]]) {
+        m.block(X(fx) - 3, y, X(fx) + 3, y + 0.5, { bounce: 1, restitution: 1.1, color: '#d8536b' });
+      }
+      m.wall(X(0.02), 2.5, 14, 0.6, { bounce: 1, restitution: 1.1, color: '#d8536b' });
+      m.wall(X(0.98), 2.5, 14, 0.6, { bounce: 1, restitution: 1.1, color: '#d8536b' });
+      m.crates(X(0.4), 14, 3, 2, 1); m.crates(X(0.6), 14, 3, 2, 1);
+      m.spawnRow(X(0.05), X(0.45), 3.2); m.spawnRow(X(0.55), X(0.95), 3.2);
+    },
+  },
 ];
 
 // ---------------- categories (SFTG style: "Factory 1", "Factory 2", ...)
@@ -562,6 +652,7 @@ const CATEGORIES = [
   ['Ropes', ['Hanging', 'Wood Bridge', 'Swings', 'Chandelier', 'Rope Bridges']],
   ['Nature', ['Lava Cave', 'Iceberg', 'Moon', 'Cliffs', 'Forest']],
   ['City', ['Rooftops', 'Lanterns', 'Windmill', 'Seesaw', 'Castle']],
+  ['Chaos', ['Wrecking Balls', 'Pendulums', 'Collapse', 'Rotors', 'Trampolines']],
 ];
 const byTitle = new Map(maps.map(mp => [mp.title || mp.name, mp]));
 const ordered = [];

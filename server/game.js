@@ -138,6 +138,12 @@ class Game {
     this.event(['chat', p.id, clean]);
   }
 
+  emote(p, i) {
+    if (this.time - (p.lastEmote || -9) < 0.7) return;
+    p.lastEmote = this.time;
+    this.event(['emote', p.id, Math.max(0, Math.min(7, i | 0))]);
+  }
+
   queueMap(p, name) {
     if (p.id !== this.hostId) return;
     this.queuedCat = null;
@@ -614,10 +620,12 @@ class Game {
           c.lastLava = this.time;
           this.event(['hz', hz, r2(p.x), r2(p.y)]);
           c.launch(27);
+          c.lastCause = 4;
           c.damage(35, c.lastHitBy);
         }
       } else if (hz) {
         this.event(['hz', hz, r2(p.x), r2(p.y)]);
+        c.lastCause = 4;
         c.die(null);
         for (const b of c.bodies) b.setLinearVelocity(V((Math.random() - 0.5) * 6, 8 + Math.random() * 4));
       }
@@ -704,7 +712,7 @@ class Game {
     for (let i = 0; i < w.pellets; i++) {
       const ang = c.aim + (Math.random() - 0.5) * 2 * w.spread;
       const sp = w.speed * (w.pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
-      const b = { id: this.nextObj++, x: end.x, y: end.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: w.life, owner: c, w };
+      const b = { id: this.nextObj++, x: end.x, y: end.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: w.life, owner: c, w, bounces: w.bounces || 0 };
       this.bullets.push(b);
       this.event(['b', b.id, r2(b.x), r2(b.y), r2(b.vx), r2(b.vy), tIdx, w.life]);
     }
@@ -740,7 +748,7 @@ class Game {
         if (f.isSensor()) return -1;
         const u = f.getBody().getUserData() || {};
         if (u.char === b.owner || u.kind === 'item' || u.kind === 'proj') return -1;
-        best = { f, point: V(point.x, point.y), frac };
+        best = { f, point: V(point.x, point.y), normal: V(normal.x, normal.y), frac };
         return frac;
       });
       const hitFrac = best ? best.frac : 1;
@@ -758,9 +766,22 @@ class Game {
       const sp = Math.hypot(b.vx, b.vy);
       const dx = b.vx / sp, dy = b.vy / sp, kb = b.w.kb;
       let victim = body.getType() === 'static' || body.getType() === 'kinematic' ? -1 : -2;
+      // the laser bounces off solid level geometry instead of stopping
+      if (b.bounces > 0 && u.kind === 'prop' && body.getType() !== 'dynamic') {
+        const n = best.normal, d = 2 * (b.vx * n.x + b.vy * n.y);
+        b.vx -= d * n.x; b.vy -= d * n.y;
+        b.x = best.point.x + n.x * 0.04; b.y = best.point.y + n.y * 0.04;
+        b.bounces--;
+        b.life -= this.dt;
+        this.event(['br', b.id, r2(b.x), r2(b.y), r2(b.vx), r2(b.vy)]);
+        this.damageProp(body, b.w.dmg * 0.4, dx, dy);
+        if (b.life > 0) keep.push(b);
+        continue;
+      }
       if (u.kind === 'part') {
         const ch = u.char;
         victim = ch.player.id;
+        ch.lastCause = 1;
         if (ch.alive) ch.damage(b.w.dmg * (u.part === 'head' ? 1.5 : 1), b.owner);
         body.applyLinearImpulse(V(dx * kb * 0.3, dy * kb * 0.3), best.point, true);
         ch.kick(dx * kb, dy * kb + kb * 0.2);
@@ -791,6 +812,7 @@ class Game {
     });
     if (hitChars.size) c.kick(dir.x * 6, dir.y * 6, false);   // attacker lunges into the hit
     for (const ch of hitChars) {
+      ch.lastCause = 2;
       if (ch.alive) ch.damage(12, c);
       ch.kick(dir.x * 20, dir.y * 20 + 4);
       ch.airGravity = 0;                               // victims float for a moment
@@ -878,6 +900,7 @@ class Game {
     for (const [ch, f] of charsHit) {
       if (!ch.alive) continue;
       const k = clamp(f * 1.35, 0, 1);
+      ch.lastCause = 3;
       ch.damage(dmg * k * (ch === owner ? 0.6 : 1), owner, 1.6 * k);
     }
   }
@@ -955,9 +978,12 @@ class Game {
     }
   }
 
-  onDeath(c) {
+  // cause: 1 shot, 2 punch, 3 explosion, 4 hazard, 0 fell / unknown
+  onDeath(c, by) {
     const p = c.chest.getPosition();
-    this.event(['die', c.player.id, r2(p.x), r2(p.y)]);
+    const killer = by && by !== c && this.players.has(by.player.id) ? by.player.id : 0;
+    this.event(['die', c.player.id, r2(p.x), r2(p.y), killer, c.lastCause || 0]);
+    c.lastCause = 0;
   }
 
   // ---------- snapshot

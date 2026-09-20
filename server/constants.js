@@ -6,7 +6,7 @@ module.exports = {
   CAT_PROP: 0x0010,   // dynamic / kinematic level pieces
 
   // index in ORDER is the id sent to clients
-  ORDER: ['pistol', 'ar', 'shotgun', 'sniper', 'rpg', 'minigun', 'grenade'],
+  ORDER: ['pistol', 'ar', 'shotgun', 'sniper', 'rpg', 'minigun', 'grenade', 'laser'],
   // speed: bullet m/s, life: bullet seconds, len: muzzle distance from hand,
   // kb: velocity (m/s) given to the victim, recoil: velocity given to the shooter
   WEAPONS: {
@@ -16,6 +16,8 @@ module.exports = {
     sniper:  { ammo: 4,  cd: 1.2,  dmg: 80, kb: 29,  speed: 170, life: 1.0, spread: 0,     pellets: 1, recoil: 14, auto: false, weight: 10, len: 1.15, twoHand: true, rack: 0.7 },
     rpg:     { ammo: 5,  cd: 1.1,  dmg: 70, kb: 0,   speed: 26,  life: 4,   spread: 0,     pellets: 0, recoil: 13, auto: false, weight: 8,  len: 1.0, twoHand: true, rack: 0.62 },
     minigun: { ammo: 80, cd: 0.055,dmg: 4,  kb: 1.7, speed: 80,  life: 1.0, spread: 0.12,  pellets: 1, recoil: 5.2, auto: true,  weight: 8,  len: 1.0, twoHand: true, spinup: 0.4, rack: 0.5 },
+    // bounces off walls up to 4 times - shoot around corners, or into your own face
+    laser:   { ammo: 10, cd: 0.5,  dmg: 24, kb: 7,   speed: 105, life: 3.0, spread: 0,     pellets: 1, recoil: 3.5, auto: false, weight: 12, len: 0.95, twoHand: true, rack: 0.45, bounces: 4 },
     grenade: { ammo: 3,  cd: 0.7,  dmg: 55, kb: 0,  speed: 15,  life: 2.2, spread: 0,     pellets: 0, recoil: 0,  auto: false, weight: 13, len: 0.15, rack: 0.25 },
   },
 
