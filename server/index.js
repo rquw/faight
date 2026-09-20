@@ -6,7 +6,7 @@ const { Game, DT, mapPreview } = require('./game');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, '..', 'public');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.mp3': 'audio/mpeg' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.mp3': 'audio/mpeg', '.webmanifest': 'application/manifest+json' };
 
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);

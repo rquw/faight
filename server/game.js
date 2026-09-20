@@ -462,7 +462,8 @@ class Game {
     const pick = (u, b) => {
       if (u.kind === 'part') return (!u.char.alive || u.char.stun > 0) ? 'thump' : null;
       if (u.kind === 'prop' && b.getType() === 'dynamic') return 'clunk';
-      if (u.kind === 'item' || (u.kind === 'proj' && u.proj.type === 'grenade')) return 'clink';
+      // dropped weapons used to clatter on every touch - that sound is gone; only grenades tick
+      if (u.kind === 'proj' && u.proj.type === 'grenade') return 'clink';
       return null;
     };
     for (const [u, b, other] of [[ua, ba, ub], [ub, bb, ua]]) {

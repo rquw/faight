@@ -114,6 +114,14 @@ function renderLobby(list) {
 }
 lobbyPoll();
 
+// iOS Safari cannot hide its own bars; installing the page to the home screen can
+const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+try {
+  if (isIOS && !standalone && !localStorage.getItem('faight-a2hs')) $('a2hs').hidden = false;
+} catch {}
+$('a2hs-x').onclick = () => { $('a2hs').hidden = true; try { localStorage.setItem('faight-a2hs', '1'); } catch {} };
+
 // how to play: hover the little i (tap toggles it on touch devices)
 const howto = $('howto'), infoBtn = $('info');
 infoBtn.addEventListener('mouseenter', () => howto.classList.add('show'));
@@ -522,8 +530,10 @@ function touchLayout() {
     R,
     moveHint: { x: m + R, y: H - m - R, r: R },
     aimHint: { x: W - m - R, y: H - m - R, r: R },
-    jump: { x: m + R * 0.5, y: H - m - R * 2.35, r: R * 0.6 },     // left thumb, above the move stick
-    drop: { x: W - m - R * 0.5, y: H - m - R * 2.35, r: R * 0.5 }, // right thumb, above the aim stick
+    // jump sits next to the aim stick where the right thumb can reach it, drop goes to the left
+    // thumb - far away from the aiming area, so it can never eat an aim drag
+    jump: { x: W - m - R * 3.1, y: H - m - R * 0.85, r: R * 0.66 },
+    drop: { x: m + R * 0.55, y: H - m - R * 2.4, r: R * 0.58 },
   };
 }
 const inCircle = (t, c, k = 1) => Math.hypot(t.clientX - c.x, t.clientY - c.y) <= c.r * k;
@@ -545,8 +555,8 @@ touchLayer.addEventListener('touchstart', (e) => {
   const L = touchLayout();
   for (const t of e.changedTouches) {
     const p = { id: t.identifier, x: t.clientX, y: t.clientY, sx: t.clientX, sy: t.clientY, t0: performance.now() };
-    if (!touch.jump && inCircle(t, L.jump, 1.3)) { touch.jump = p; keys.j = 1; buzz(8); }
-    else if (!touch.drop && inCircle(t, L.drop, 1.35)) { touch.drop = p; keys.th = 1; }
+    if (!touch.jump && inCircle(t, L.jump, 1.15)) { touch.jump = p; keys.j = 1; buzz(8); }
+    else if (!touch.drop && inCircle(t, L.drop, 1.4)) { touch.drop = p; keys.th = 1; buzz(8); }
     else if (!touch.aim && t.clientX > W * 0.45) touch.aim = p;
     else if (!touch.move) touch.move = p;
   }
@@ -709,15 +719,17 @@ function drawTouchUI(time) {
     ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = `700 ${Math.round(R * 0.2)}px Arial, sans-serif`;
     ctx.fillText('AIM', ab.x, ab.y + R * 0.72);
   }
-  // jump (left) and drop (right)
-  ring(L.jump.x, L.jump.y, L.jump.r, touch.jump ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.25)', 'rgba(255,255,255,0.45)');
+  // jump (right thumb, beside the aim stick) and drop (left thumb, above the move stick)
+  ring(L.jump.x, L.jump.y, L.jump.r, touch.jump ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.3)', 'rgba(255,255,255,0.55)', 4);
   ctx.fillStyle = '#fff';
-  const jr = L.jump.r * 0.4;
-  ctx.beginPath(); ctx.moveTo(L.jump.x, L.jump.y - jr * 1.15); ctx.lineTo(L.jump.x + jr, L.jump.y + jr * 0.55); ctx.lineTo(L.jump.x - jr, L.jump.y + jr * 0.55); ctx.fill();
+  const jr = L.jump.r * 0.42;
+  ctx.beginPath(); ctx.moveTo(L.jump.x, L.jump.y - jr * 1.2); ctx.lineTo(L.jump.x + jr, L.jump.y + jr * 0.5); ctx.lineTo(L.jump.x - jr, L.jump.y + jr * 0.5); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = `700 ${Math.round(L.jump.r * 0.26)}px Arial, sans-serif`;
+  ctx.fillText('JUMP', L.jump.x, L.jump.y + L.jump.r * 0.72);
   const canDrop = myPos && myPos.armed;
-  ctx.globalAlpha = canDrop ? 1 : 0.35;
-  ring(L.drop.x, L.drop.y, L.drop.r, touch.drop ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.25)', 'rgba(255,255,255,0.45)');
-  ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(L.drop.r * 0.38)}px Arial, sans-serif`;
+  ctx.globalAlpha = canDrop ? 1 : 0.3;
+  ring(L.drop.x, L.drop.y, L.drop.r, touch.drop ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.3)', 'rgba(255,255,255,0.5)', 4);
+  ctx.fillStyle = '#fff'; ctx.font = `800 ${Math.round(L.drop.r * 0.36)}px Arial, sans-serif`;
   ctx.fillText('DROP', L.drop.x, L.drop.y);
   ctx.globalAlpha = 1;
   ctx.textBaseline = 'alphabetic';
@@ -748,10 +760,19 @@ function screenToWorld(x, y) { return { x: cam.cx + (x - W / 2) / cam.s, y: cam.
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
-  W = innerWidth; H = innerHeight;
+  // the visual viewport is what you can actually see - on iOS that excludes Safari's bars, so the
+  // sticks and buttons stay inside the visible area instead of hiding behind the address bar
+  const vv = window.visualViewport;
+  W = Math.round(vv ? vv.width : innerWidth);
+  H = Math.round(vv ? vv.height : innerHeight);
   cv.width = W * dpr; cv.height = H * dpr;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const tl = document.getElementById('touch');   // may not exist yet on the very first call
+  if (tl) { tl.style.width = W + 'px'; tl.style.height = H + 'px'; }
 }
 addEventListener('resize', resize);
+addEventListener('orientationchange', () => setTimeout(resize, 120));
+if (window.visualViewport) { visualViewport.addEventListener('resize', resize); visualViewport.addEventListener('scroll', resize); }
 resize();
 
 // ---------------------------------------------------------------- colors
@@ -1909,9 +1930,9 @@ function sfx(name, x, arg, key = name) {
     case 'hit': if (smp('hit', 0.9, vary(0.18))) break; noise(0.1, 1400 * R(), 1, 0.6, 'lowpass', 200); thump(100 * R(), 45, 0.1, 0.6); break;
     case 'thud': if (smp('thump', 1.1, 0.85 * vary())) break; thump(90, 35, 0.2, 0.7); noise(0.12, 500, 1, 0.4); break;
     case 'die': smp('thump', 1.3, 0.75); thump(140, 30, 0.3, 0.5); noise(0.3, 700, 0.7, 0.35, 'lowpass', 80); break;
-    case 'step': if (smp('step', 0.35, vary(0.15))) break; noise(0.05, 380 * R(), 1, 0.13, 'lowpass', 150); click(1800 * R(), 0.03, 0.012); break;
-    case 'land': if (smp('land', 0.45 + 0.9 * k, vary())) { thump(80, 40, 0.12, 0.1 + 0.25 * k); break; } thump(95 * R(), 38, 0.16, 0.18 + 0.4 * k); noise(0.1, 450, 1, 0.12 + 0.3 * k, 'lowpass', 120); break;
-    case 'thump': if (smp('thump', 0.35 + 0.9 * k, vary())) break; thump(130 * R(), 45, 0.12, 0.15 + 0.45 * k); noise(0.07, 800 * R(), 1, 0.1 + 0.3 * k, 'lowpass', 200); break;
+    case 'step': if (smp('step', 0.22, vary(0.15))) break; noise(0.05, 380 * R(), 1, 0.13, 'lowpass', 150); click(1800 * R(), 0.03, 0.012); break;
+    case 'land': if (smp('land', 0.3 + 0.7 * k, vary())) { thump(80, 40, 0.12, 0.08 + 0.2 * k); break; } thump(95 * R(), 38, 0.16, 0.18 + 0.4 * k); noise(0.1, 450, 1, 0.12 + 0.3 * k, 'lowpass', 120); break;
+    case 'thump': if (smp('thump', 0.28 + 0.7 * k, vary())) break; thump(130 * R(), 45, 0.12, 0.15 + 0.45 * k); noise(0.07, 800 * R(), 1, 0.1 + 0.3 * k, 'lowpass', 200); break;
     case 'jump': noise(0.1, 700, 1.5, 0.1, 'bandpass', 1400, 0.02); break;
     case 'walljump': noise(0.12, 1800, 1, 0.16, 'bandpass', 700); knock(160, 0.2); break;
     case 'airjump': noise(0.14, 900, 1.5, 0.14, 'bandpass', 2600, 0.02); thump(320, 720, 0.12, 0.12, 'triangle'); break;
@@ -1921,10 +1942,10 @@ function sfx(name, x, arg, key = name) {
     case 'woodhit': if (smp('woodhit', 0.8, vary(0.2))) break; knock(240 * R(), 0.35); noise(0.05, 1800, 2, 0.15, 'bandpass'); break;
     case 'metalhit': if (smp('metalhit', 0.8, vary(0.2))) break; thump(2400 * R(), 2200, 0.2, 0.18, 'triangle'); click(5200, 0.4, 0.03); break;
     case 'clunk':
-      if (arg && arg.stone) { if (smp('stone', 0.4 + 0.8 * k, vary())) break; thump(80 * R(), 40, 0.14, 0.2 + 0.4 * k); noise(0.09, 1200, 1, 0.1 + 0.25 * k, 'lowpass'); break; }
-      if (smp('clunk', 0.35 + 0.8 * k, vary(0.18))) break;
+      if (arg && arg.stone) { if (smp('stone', 0.28 + 0.6 * k, vary())) break; thump(80 * R(), 40, 0.14, 0.2 + 0.4 * k); noise(0.09, 1200, 1, 0.1 + 0.25 * k, 'lowpass'); break; }
+      if (smp('clunk', 0.22 + 0.6 * k, vary(0.18))) break;
       knock((170 + Math.random() * 90), 0.12 + 0.4 * k); break;
-    case 'clink': if (smp('clink', 0.3 + 0.7 * k, vary(0.2))) break; thump(2800 * R(), 2500, 0.1, 0.05 + 0.12 * k, 'triangle'); break;
+    case 'clink': if (smp('clink', 0.16 + 0.3 * k, 1.35 * vary(0.2))) break; thump(2800 * R(), 2500, 0.08, 0.04 + 0.08 * k, 'triangle'); break;
     case 'sizzle': noise(1, 5000, 0.5, 0.5, 'highpass', 1500, 0.05); break;
     case 'saw': noise(0.4, 3500, 6, 0.5, 'bandpass', 1500); break;
     case 'crack': if (smp('crack', 1.2, vary(0.15))) { smp('glass', 0.5, vary(0.3)); thump(70, 30, 0.25, 0.4); break; } noise(0.5, 600, 0.8, 1, 'lowpass', 80); thump(70, 30, 0.3, 0.6); knock(200, 0.3); break;

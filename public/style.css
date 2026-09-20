@@ -1,6 +1,6 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #eee; user-select: none; -webkit-user-select: none;
+html, body { margin: 0; height: 100dvh; overflow: hidden; background: #111; color: #eee; user-select: none; -webkit-user-select: none;
   overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
   font-family: "Arial Black", "Helvetica Neue", Arial, sans-serif; }
 #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: none; }
@@ -113,3 +113,8 @@ body.touch .score { font-size: 11px; }
 
 
 #howto .credit { color: #777; font-size: 11px; }
+
+#a2hs { font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #ccc; background: #1c1c1c;
+  border: 2px solid #333; border-radius: 6px; padding: 10px 12px; text-align: center; }
+#a2hs b { color: #f2c12e; }
+#a2hs button { display: block; margin: 8px auto 0; font-size: 11px; padding: 6px 14px; }
