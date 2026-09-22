@@ -735,7 +735,23 @@ class Game {
   updateBullets() {
     const keep = [];
     for (const b of this.bullets) {
-      const nx = b.x + b.vx * this.dt, ny = b.y + b.vy * this.dt;
+      let nx = b.x + b.vx * this.dt, ny = b.y + b.vy * this.dt;
+      // the laser also bounces off the edges of the map, not just off walls
+      if (b.bounces > 0) {
+        let hitEdge = false;
+        if (nx < 0.2) { nx = 0.2; b.vx = Math.abs(b.vx); hitEdge = true; }
+        else if (nx > this.W - 0.2) { nx = this.W - 0.2; b.vx = -Math.abs(b.vx); hitEdge = true; }
+        if (ny > this.H - 0.2) { ny = this.H - 0.2; b.vy = -Math.abs(b.vy); hitEdge = true; }
+        else if (ny < 0.2) { ny = 0.2; b.vy = Math.abs(b.vy); hitEdge = true; }
+        if (hitEdge) {
+          b.x = nx; b.y = ny;
+          b.bounces--;
+          b.life -= this.dt;
+          this.event(['br', b.id, r2(b.x), r2(b.y), r2(b.vx), r2(b.vy)]);
+          if (b.life > 0) keep.push(b);
+          continue;
+        }
+      }
       const gunHit = this.chars.find(c => c.alive && c.weapon && c !== b.owner && this.hitsGun(c, b.x, b.y, nx, ny));
       if (gunHit) {
         const h = gunHit.handPos(0);

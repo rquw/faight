@@ -1913,7 +1913,9 @@ function audio() {
   } catch { AC = null; }
 }
 // real recorded impacts (Kenney, CC0) - loaded once, cached by the browser, synth as fallback
-const SAMPLES = { clink: 4, clunk: 4, stone: 3, thump: 4, land: 3, step: 5, punchhit: 4, hit: 3, woodhit: 3, metalhit: 3, crack: 3, bounce: 3, glass: 3, rackA: 1, rackB: 1 };
+const SAMPLES = { clink: 4, clunk: 4, stone: 3, thump: 4, land: 3, step: 5, punchhit: 4, hit: 3, woodhit: 3,
+  metalhit: 3, crack: 3, bounce: 3, glass: 3, rackA: 2, rackB: 1,
+  gpistol: 1, gar: 1, gshotgun: 1, gsniper: 1, gmini: 1, grpg: 1, gboom: 3 };
 const bufs = {};
 function loadSamples() {
   for (const name in SAMPLES) {
@@ -2010,18 +2012,18 @@ function sfx(name, x, arg, key = name) {
   const k = arg == null ? 1 : arg;
   switch (name) {
     // guns
-    case 'pistol': noise(0.18, 2200 * R(), 0.7, 0.7, 'lowpass', 300); thump(160, 50, 0.1, 0.5); click(4200, 0.15); break;
-    case 'ar': noise(0.12, 2600 * R(), 0.7, 0.5, 'lowpass', 400); thump(140, 50, 0.07, 0.35); break;
-    case 'minigun': noise(0.07, 3000 * R(), 0.7, 0.35, 'lowpass', 600); break;
-    case 'shotgun': noise(0.45, 1600, 0.6, 1, 'lowpass', 120); thump(110, 35, 0.25, 0.9); break;
-    case 'sniper': noise(0.7, 4000, 0.5, 1, 'lowpass', 150); thump(180, 30, 0.35, 0.9); sndDelay = 0.25; noise(0.5, 900, 0.5, 0.25, 'lowpass', 120, 0.05); break;
-    case 'rpg': noise(0.5, 700, 0.8, 0.6, 'lowpass', 2200, 0.03); thump(90, 40, 0.2, 0.5); break;
+    case 'pistol': if (smp('gpistol', 0.85, vary(0.08))) break; noise(0.18, 2200 * R(), 0.7, 0.7, 'lowpass', 300); thump(160, 50, 0.1, 0.5); click(4200, 0.15); break;
+    case 'ar': if (smp('gar', 0.6, vary(0.1))) break; noise(0.12, 2600 * R(), 0.7, 0.5, 'lowpass', 400); thump(140, 50, 0.07, 0.35); break;
+    case 'minigun': if (smp('gmini', 0.42, 0.85 * vary(0.12))) break; noise(0.07, 3000 * R(), 0.7, 0.35, 'lowpass', 600); break;
+    case 'shotgun': if (smp('gshotgun', 1.0, vary(0.07))) break; noise(0.45, 1600, 0.6, 1, 'lowpass', 120); thump(110, 35, 0.25, 0.9); break;
+    case 'sniper': if (smp('gsniper', 1.0, vary(0.05))) break; noise(0.7, 4000, 0.5, 1, 'lowpass', 150); thump(180, 30, 0.35, 0.9); sndDelay = 0.25; noise(0.5, 900, 0.5, 0.25, 'lowpass', 120, 0.05); break;
+    case 'rpg': if (smp('grpg', 0.9, 0.8 * vary(0.08))) { noise(0.45, 900, 0.9, 0.3, 'lowpass', 2400, 0.04); break; } noise(0.5, 700, 0.8, 0.6, 'lowpass', 2200, 0.03); thump(90, 40, 0.2, 0.5); break;
     case 'grenade': noise(0.12, 900, 1, 0.25, 'bandpass', 300); break;
     case 'laser': noise(0.1, 2600, 3, 0.35, 'bandpass', 700, 0.005); thump(1400, 260, 0.16, 0.45, 'sawtooth'); sndDelay = 0.02; thump(2600, 900, 0.1, 0.16, 'triangle'); break;
     case 'zap': thump(2200 * (0.85 + Math.random() * 0.3), 700, 0.07, 0.16, 'triangle'); noise(0.05, 4000, 5, 0.12, 'bandpass', 1500); break;
     case 'rackA': if (!smp('rackA', 0.9, RACK_RATE[k] || 1)) RACK[k][0](); break;
     case 'rackB': if (!smp('rackB', 1.0, RACK_RATE[k] || 1)) RACK[k][1](); break;
-    case 'boom': noise(1.4, 1200, 0.6, 1.3, 'lowpass', 40); thump(80, 22, 0.9, 1.1); sndDelay = 0.12; noise(1.2, 500, 0.5, 0.35, 'lowpass', 60, 0.1); break;
+    case 'boom': if (smp('gboom', 1.2, vary(0.1))) { thump(70, 22, 0.8, 0.5); break; } noise(1.4, 1200, 0.6, 1.3, 'lowpass', 40); thump(80, 22, 0.9, 1.1); sndDelay = 0.12; noise(1.2, 500, 0.5, 0.35, 'lowpass', 60, 0.1); break;
     // bodies
     case 'whoosh': noise(0.13, 500, 2, 0.22, 'bandpass', 1800, 0.03); break;
     case 'punchhit': if (smp('punchhit', 1.1, vary())) break; noise(0.12, 900, 0.8, 0.9, 'lowpass', 150); thump(120 * R(), 40, 0.15, 0.9); break;

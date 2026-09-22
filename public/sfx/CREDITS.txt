@@ -1,3 +1,9 @@
 Impact, footstep and handling sounds from the Kenney asset packs
 "Impact Sounds" and "RPG Audio" (https://kenney.nl), released under CC0 1.0
 (public domain). Converted to mono 22 kHz MP3 for this game.
+
+Firearm recordings from OpenGameArt, all CC0 1.0 (public domain):
+  "Gunshots" by Luke.RUSTLTD (.22 pistol, .22 magnum, black powder, rifle)
+  "Gun reload sounds" by spookymodem (magazine reload, shotgun cock)
+  "25 CC0 bang / firework SFX" by rubberduck (cannon and bang layers)
+Trimmed, peak normalised and converted to mono 44.1 kHz MP3 for this game.

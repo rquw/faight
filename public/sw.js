@@ -1,5 +1,5 @@
 // Cache the game shell and the sound samples so a second visit costs almost no traffic.
-const CACHE = 'faight-v1';
+const CACHE = 'faight-v2';   // bump this whenever a file in sfx/ changes
 const ASSETS = ['./', 'index.html', 'style.css', 'client.js', 'protocol.js', 'icon.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
