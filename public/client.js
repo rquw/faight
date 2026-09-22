@@ -28,7 +28,6 @@ const hitFlash = new Map();
 const hpShow = new Map();
 const protect = new Map();
 const goneIds = new Set();
-let lastKill = null, killcam = null;
 let hostId = 0, queuedMap = null, mapNames = [], mapCats = [], slowUntil = 0, suddenT = 0;
 let muted = false;
 
@@ -438,7 +437,7 @@ function onMessage(m) {
       map.shapeById = new Map(m.shapes.map(sh => [sh.id, sh]));
       mapSerial++;
       mapT = 0;
-      snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear(); protect.clear(); goneIds.clear(); killcam = null; lastKill = null;
+      snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear(); protect.clear(); goneIds.clear();
       fade = 1;
       sfx('start');
       banner = null;
@@ -484,7 +483,7 @@ function onSnap(s) {
   for (const i of s.I) snap.I.set(i[0], i);
   for (const r of s.R) snap.R.set(r[0], r);
   snaps.push(snap);
-  if (snaps.length > 110) snaps.shift();   // ~3.5 s of history, enough for the kill cam
+  if (snaps.length > 40) snaps.shift();
   // sleeping props aren't resent every time: remember their last pose
   for (const o of s.O) { const sh = map.shapeById.get(o[0]); if (sh) { sh.x = o[1] / 100; sh.y = o[2] / 100; sh.a = o[3] / 100; } }
 }
@@ -517,9 +516,9 @@ function predictLocal(players, dt) {
 const lerp = (a, b, k) => a + (b - a) * k;
 const lerpA = (a, b, k) => { let d = b - a; d -= Math.PI * 2 * Math.round(d / (Math.PI * 2)); return a + d * k; };
 
-function sample(forceRt) {
+function sample() {
   if (!snaps.length) return null;
-  const rt = forceRt != null ? forceRt : performance.now() / 1000 + clockOffset - INTERP;
+  const rt = performance.now() / 1000 + clockOffset - INTERP;
   let a = snaps[0], b = snaps[0];
   for (let i = snaps.length - 1; i >= 0; i--) {
     if (snaps[i].t <= rt) { a = snaps[i]; b = snaps[i + 1] || snaps[i]; break; }
@@ -586,7 +585,6 @@ let touchMode = false, myPos = null, livePlayers = [];
 const AUTO_W = { ar: 1, minigun: 1 };
 const touch = { move: null, aim: null, jump: null, drop: null, aimDir: null, tapDir: null, face: 1, aimPull: 0, flick: true, firing: false };
 dbg.touch = touch; dbg.keys = keys;
-Object.defineProperty(dbg, 'killcam', { get: () => killcam });
 Object.defineProperty(dbg, 'players', { get: () => livePlayers });
 dbg.toScreen = (x, y) => ({ x: sx(x), y: sy(y) });
 const touchLayer = document.createElement('div');
@@ -997,7 +995,6 @@ function handleEvent(e) {
     case 'die': {
       const [, id, x, y, killer, cause] = e;
       killFeed(id, killer, cause);
-      lastKill = { t: performance.now(), shot: cause === 1, id };
       spawnParticles(x, y, 18, { speed: 8, life: 0.8, size: 0.13, color: colorOf(id) });
       kick((Math.random() - 0.5), (Math.random() - 0.5), 0.35);
       sfx('die', x);
@@ -1041,16 +1038,8 @@ function handleEvent(e) {
       break;
     case 'win': {
       const r = roster.get(e[1]);
-      const b = { name: r ? r.name : '', color: r ? r.color : '#dddddd', draw: !r, t: 0 };
-      // a kill cam only for the last kill being an actual shot - falls and lava are not worth it
-      if (lastKill && lastKill.shot && performance.now() - lastKill.t < 800 && snaps.length > 20) {
-        const now = performance.now() / 1000 + clockOffset - INTERP;
-        killcam = { at: performance.now(), from: Math.max(snaps[0].t, now - 0.9), to: now, banner: b };
-        sfx('slowmo');
-      } else {
-        banner = b;
-        sfx('win');
-      }
+      banner = { name: r ? r.name : '', color: r ? r.color : '#dddddd', draw: !r, t: 0 };
+      sfx('win');
       break;
     }
   }
@@ -1583,13 +1572,8 @@ function render(nowMs) {
   if (!map) { drawMenuBg(time); return; }
   mapT += dt;
   const edt = nowMs < slowUntil ? dt * 0.3 : dt;   // effects follow the server's slow motion
-  let smp;
-  if (killcam) {
-    const rt = killcam.from + (nowMs - killcam.at) / 1000 * 0.45;   // slow motion replay (~2 s)
-    if (rt >= killcam.to) { banner = killcam.banner; killcam = null; pendingEvents.length = 0; sfx('win'); smp = sample(); }
-    else smp = sample(rt);
-  } else smp = sample();
-  if (smp && !killcam) processEvents(smp.rt);
+  const smp = sample();
+  if (smp) processEvents(smp.rt);
   const A = smp && smp.a, B = smp && smp.b, k = smp ? smp.k : 0;
 
   // interpolate players
@@ -1842,19 +1826,6 @@ function render(nowMs) {
     ctx.textBaseline = 'alphabetic'; ctx.globalAlpha = 1;
   }
 
-  // kill cam framing
-  if (killcam) {
-    const h = Math.min(54, H * 0.1);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, W, h); ctx.fillRect(0, H - h, W, h);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ff6b5e'; ctx.font = `900 ${Math.round(h * 0.42)}px "Arial Black", Arial, sans-serif`;
-    ctx.fillText('KILLCAM', W / 2, h / 2);
-    ctx.fillStyle = '#888'; ctx.font = `700 ${Math.round(h * 0.26)}px Arial, sans-serif`;
-    ctx.fillText('the shot that ended it', W / 2, H - h / 2);
-    ctx.textBaseline = 'alphabetic';
-  }
-
   // round winner
   if (banner) {
     banner.t += dt;
@@ -2082,7 +2053,6 @@ function sfx(name, x, arg, key = name) {
     case 'start': noise(0.9, 200, 0.7, 0.25, 'lowpass', 2000, 0.6); thump(55, 45, 0.9, 0.25); break;
     case 'sudden': thump(70, 40, 1.2, 0.5, 'sawtooth'); noise(1.2, 300, 0.7, 0.35, 'lowpass', 1500, 0.3); break;
     case 'spawn': thump(300, 900, 0.14, 0.2, 'triangle'); noise(0.12, 2000, 2, 0.14, 'bandpass', 4000, 0.02); break;
-    case 'slowmo': thump(600, 90, 0.9, 0.3, 'sawtooth'); noise(0.7, 1800, 1, 0.18, 'lowpass', 300, 0.1); break;
     case 'win': thump(220, 110, 0.6, 0.35); noise(0.8, 3000, 0.5, 0.15, 'highpass', 8000, 0.2); break;
   }
   sndPan = 0; sndDelay = 0;
