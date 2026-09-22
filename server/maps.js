@@ -558,89 +558,126 @@ const maps = [
     title: 'Wrecking Balls', sky: ['#8f8a86', '#d6d2cb'],
     build(m) {
       const { X, H } = m;
-      m.floor(X(0.02), X(0.26), 5, 3); m.floor(X(0.74), X(0.98), 5, 3);
-      m.floor(X(0.36), X(0.64), 9, 0.6);
-      m.floor(X(0.3), X(0.36), 6.5, 0.5); m.floor(X(0.64), X(0.7), 6.5, 0.5);
+      // two towers with balconies the balls sweep across, and a middle island to fight over
+      for (const side of [0, 1]) {
+        const a = side ? X(0.76) : X(0.02), b = side ? X(0.98) : X(0.24);
+        m.floor(a, b, 5, 3, { color: '#3b3f44' });
+        m.floor(side ? a - 0.5 : a, side ? b : b + 0.5, 9.5, 0.6, { color: '#4a4f55' });
+        m.floor(a, b, 14, 0.6, { color: '#4a4f55' });
+        m.wall(side ? b - 0.3 : a + 0.3, 5, 14, 0.6, { color: '#3b3f44' });
+        m.crates(side ? b - 3 : a + 3, 5, 2, 2, 1);
+        m.spawnRow(a + 1, b - 1, 5); m.spawn(side ? b - 2 : a + 2, 14);
+      }
+      m.floor(X(0.38), X(0.62), 8, 0.7, { color: '#4a4f55' });
+      m.floor(X(0.3), X(0.34), 11.5, 0.5, { color: '#4a4f55' }); m.floor(X(0.66), X(0.7), 11.5, 0.5, { color: '#4a4f55' });
+      m.floor(X(0.44), X(0.56), 15, 0.6, { color: '#4a4f55' });
       const cnt = 3 + Math.floor(m.n / 5);
       for (let i = 0; i < cnt; i++) {
-        const x = X(0.22 + (0.56 * i) / Math.max(1, cnt - 1));
-        const ball = m.circle(x, H - 9, 1.15, { dynamic: true, density: 9, color: '#3a3d42' });
+        const x = X(0.26 + (0.48 * i) / Math.max(1, cnt - 1));
+        const ball = m.circle(x, H - 8, 1.1, { dynamic: true, density: 9, color: '#2f3237' });
         m.rope(x, H - 1, ball, 0, 0, 1.02);
-        ball.setLinearVelocity(V((i % 2 ? 9 : -9), 0));
+        ball.setLinearVelocity(V(i % 2 ? 9 : -9, 0));
       }
-      m.spawnRow(X(0.03), X(0.25), 5); m.spawnRow(X(0.75), X(0.97), 5); m.spawnRow(X(0.38), X(0.62), 9);
+      m.spawnRow(X(0.4), X(0.6), 8);
     },
   },
   {
     title: 'Pendulums', sky: ['#9aa3ad', '#dfe3e6'],
     build(m) {
       const { X, H } = m;
-      m.floor(X(0.02), X(0.2), 4, 2.5); m.floor(X(0.8), X(0.98), 4, 2.5);
       const top = H - 0.8;
-      m.floor(X(0.18), X(0.82), top, 0.6);
+      m.floor(X(0.02), X(0.18), 4, 2.5, { color: '#3f4750' });
+      m.floor(X(0.82), X(0.98), 4, 2.5, { color: '#3f4750' });
+      // stepped ledges up both sides, so you can climb to the high planks on purpose
+      for (const side of [0, 1]) {
+        const dir = side ? -1 : 1, base = side ? X(0.98) : X(0.02);
+        for (let i = 0; i < 3; i++) {
+          const x0 = base + dir * (1 + i * 2.2), y = 7 + i * 3.2;
+          m.floor(Math.min(x0, x0 + dir * 4.5), Math.max(x0, x0 + dir * 4.5), y, 0.5, { color: '#4a545e' });
+        }
+      }
+      m.floor(X(0.18), X(0.82), top, 0.6, { color: '#3f4750' });
+      m.floor(X(0.36), X(0.64), 6.5, 0.6, { color: '#4a545e' });
+      m.floor(X(0.46), X(0.54), 12, 0.5, { color: '#4a545e' });
       const cnt = 5 + Math.floor(m.n / 4);
       for (let i = 0; i < cnt; i++) {
         const x = X(0.24 + (0.52 * i) / Math.max(1, cnt - 1));
         const len = 7 + (i % 3) * 2.5;
         const plank = m.rect(x, top - len, 4.2, 0.4, { dynamic: true, density: 3, color: '#4b4038', angularDamping: 1.8, hp: 70 });
         m.rope(x, top - 0.4, plank, 0, 0.2, 1.01);
-        plank.setLinearVelocity(V((i % 2 ? 3.5 : -3.5), 0));
+        plank.setLinearVelocity(V(i % 2 ? 3.5 : -3.5, 0));
       }
-      // spawns stay on solid ground - landing on a swinging plank is something you do on purpose
-      m.floor(X(0.36), X(0.64), 7, 0.6);
-      m.spawnRow(X(0.03), X(0.19), 4); m.spawnRow(X(0.81), X(0.97), 4); m.spawnRow(X(0.38), X(0.62), 7);
+      m.spawnRow(X(0.03), X(0.17), 4); m.spawnRow(X(0.83), X(0.97), 4); m.spawnRow(X(0.38), X(0.62), 6.5);
     },
   },
   {
     title: 'Collapse', sky: ['#a6957f', '#e0d6c4'],
     build(m) {
-      const { X, H } = m;
-      m.floor(X(0.02), X(0.16), 6, 3); m.floor(X(0.84), X(0.98), 6, 3);
-      // the whole middle is made of planks that drop away one after another
-      for (let i = 0; i < 14; i++) {
-        const x0 = X(0.17) + i * (X(0.83) - X(0.17)) / 14;
-        m.block(x0, 5.4, x0 + (X(0.83) - X(0.17)) / 14 - 0.15, 6, { color: '#6b5442', breakAt: 9 + i * 1.6 + Math.random() * 2 });
+      const { X } = m;
+      m.floor(X(0.02), X(0.16), 6, 3, { color: '#5b4a3a' });
+      m.floor(X(0.84), X(0.98), 6, 3, { color: '#5b4a3a' });
+      m.wall(X(0.04), 6, 12, 0.6, { color: '#5b4a3a' }); m.wall(X(0.96), 6, 12, 0.6, { color: '#5b4a3a' });
+      m.floor(X(0.02), X(0.16), 12, 0.6, { color: '#5b4a3a' });
+      m.floor(X(0.84), X(0.98), 12, 0.6, { color: '#5b4a3a' });
+      // three floors that fall away plank by plank, from the bottom up
+      const rows = [[5.4, 14, 9], [10.5, 10, 20], [15.5, 7, 32]];
+      for (const [y, n, t0] of rows) {
+        const x0 = X(0.17), x1 = X(0.83), w = (x1 - x0) / n;
+        for (let i = 0; i < n; i++) {
+          const a = x0 + i * w;
+          m.block(a, y, a + w - 0.15, y + 0.6, { color: '#6b5442', breakAt: t0 + i * 1.3 + Math.random() * 2.5, hp: 90 });
+        }
       }
-      for (let i = 0; i < 6; i++) {
-        const x = X(0.24 + i * 0.105);
-        m.block(x - 1.6, 11, x + 1.6, 11.5, { color: '#6b5442', breakAt: 16 + i * 2.2 + Math.random() * 3 });
-      }
-      m.crates(X(0.5), 12, 3, 2, 1);
+      m.crates(X(0.5), 16.5, 3, 2, 1);
       m.spawnRow(X(0.03), X(0.15), 6); m.spawnRow(X(0.85), X(0.97), 6); m.spawnRow(X(0.25), X(0.75), 6);
     },
   },
   {
-    title: 'Rotors', sky: ['#7e8a93', '#cfd8dc'], 
+    title: 'Rotors', sky: ['#7e8a93', '#cfd8dc'],
     build(m) {
-      const { X, W, H } = m;
-      m.floor(X(0.02), X(0.18), 5, 2.5); m.floor(X(0.82), X(0.98), 5, 2.5);
-      m.floor(X(0.44), X(0.56), 3.5, 0.6);
+      const { X, H } = m;
+      // the fun is the bars sweeping across ledges you stand on, so give them plenty to sweep
+      for (const side of [0, 1]) {
+        const a = side ? X(0.84) : X(0.02), b = side ? X(0.98) : X(0.16);
+        m.floor(a, b, 5, 2.5, { color: '#41484d' });
+        m.floor(a, b, 10.5, 0.6, { color: '#41484d' });
+        m.floor(a, b, 16, 0.6, { color: '#41484d' });
+        m.wall(side ? b - 0.3 : a + 0.3, 5, 16, 0.6, { color: '#353b40' });
+        m.spawnRow(a + 1, b - 1, 5); m.spawn((a + b) / 2, 10.5);
+      }
+      m.floor(X(0.42), X(0.58), 4, 0.7, { color: '#41484d' });
+      m.floor(X(0.22), X(0.3), 8.5, 0.5, { color: '#41484d' }); m.floor(X(0.7), X(0.78), 8.5, 0.5, { color: '#41484d' });
+      m.floor(X(0.44), X(0.56), 13, 0.6, { color: '#41484d' });
+      m.floor(X(0.2), X(0.28), 17, 0.5, { color: '#41484d' }); m.floor(X(0.72), X(0.8), 17, 0.5, { color: '#41484d' });
       const spin = [];
-      for (const [fx, fy, len, speed] of [[0.3, 0.42, 9, 1.4], [0.5, 0.62, 11, -0.9], [0.7, 0.42, 9, 1.8]]) {
-        const x = X(fx), y = H * fy;
-        const bar = m.rect(x, y, len, 0.7, { kinematic: true, color: '#4d5257' });
+      for (const [fx, fy, len, speed] of [[0.34, 0.3, 9, 1.4], [0.5, 0.56, 12, -0.9], [0.66, 0.3, 9, 1.8], [0.5, 0.86, 8, 1.2]]) {
+        const x = X(fx), y = Math.min(H - 3, H * fy);
+        const bar = m.rect(x, y, len, 0.7, { kinematic: true, color: '#5c646b' });
         m.circle(x, y, 0.7, { color: '#31363a' });
         spin.push([bar, speed]);
       }
       m.tick((t) => { for (const [bar, sp] of spin) bar.setAngularVelocity(sp * (0.6 + 0.5 * Math.sin(t * 0.35 + sp))); });
-      m.spawnRow(X(0.03), X(0.17), 5); m.spawnRow(X(0.83), X(0.97), 5);
+      m.spawnRow(X(0.44), X(0.56), 4);
     },
   },
   {
     title: 'Trampolines', sky: ['#9d7f9e', '#e4d6e6'],
     build(m) {
       const { X, H } = m;
+      const PAD = { bounce: 1, restitution: 1.2, color: '#d8536b' };
       m.floor(X(0.02), X(0.98), 2.5, 2.5, { color: '#2c2a31' });
-      for (const fx of [0.12, 0.32, 0.5, 0.68, 0.88]) {
-        m.block(X(fx) - 2.6, 2.5, X(fx) + 2.6, 3.1, { bounce: 1, restitution: 1.25, color: '#d8536b' });
-      }
-      for (const [fx, y] of [[0.22, 9], [0.5, 12.5], [0.78, 9]]) {
-        m.block(X(fx) - 3, y, X(fx) + 3, y + 0.5, { bounce: 1, restitution: 1.1, color: '#d8536b' });
-      }
-      m.wall(X(0.02), 2.5, 14, 0.6, { bounce: 1, restitution: 1.1, color: '#d8536b' });
-      m.wall(X(0.98), 2.5, 14, 0.6, { bounce: 1, restitution: 1.1, color: '#d8536b' });
-      m.crates(X(0.4), 14, 3, 2, 1); m.crates(X(0.6), 14, 3, 2, 1);
-      m.spawnRow(X(0.05), X(0.45), 3.2); m.spawnRow(X(0.55), X(0.95), 3.2);
+      for (const fx of [0.12, 0.32, 0.5, 0.68, 0.88]) m.block(X(fx) - 2.6, 2.5, X(fx) + 2.6, 3.1, PAD);
+      // bouncy walls, angled pads and a ceiling pad: nothing ever comes to rest
+      m.wall(X(0.02), 2.5, 16, 0.6, PAD); m.wall(X(0.98), 2.5, 16, 0.6, PAD);
+      m.block(X(0.2) - 2.6, 7.4, X(0.2) + 2.6, 8, { bounce: 1, restitution: 1.1, color: '#d8536b', angle: 0.22 });
+      m.block(X(0.8) - 2.6, 7.4, X(0.8) + 2.6, 8, { bounce: 1, restitution: 1.1, color: '#d8536b', angle: -0.22 });
+      m.floor(X(0.42), X(0.58), 6.5, 0.6, { color: '#3a3542' });
+      m.floor(X(0.1), X(0.2), 11.5, 0.5, { color: '#3a3542' }); m.floor(X(0.8), X(0.9), 11.5, 0.5, { color: '#3a3542' });
+      m.floor(X(0.44), X(0.56), 12.5, 0.6, PAD);
+      m.floor(X(0.3), X(0.4), 15.5, 0.5, { color: '#3a3542' }); m.floor(X(0.6), X(0.7), 15.5, 0.5, { color: '#3a3542' });
+      m.block(X(0.46), Math.min(H - 1.2, 19), X(0.54), Math.min(H - 0.6, 19.6), PAD);
+      m.crates(X(0.32), 13, 3, 2, 1); m.crates(X(0.68), 13, 3, 2, 1);
+      m.spawnRow(X(0.05), X(0.45), 3.2); m.spawnRow(X(0.55), X(0.95), 3.2); m.spawnRow(X(0.44), X(0.56), 6.5);
     },
   },
 ];

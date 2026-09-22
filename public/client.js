@@ -210,7 +210,8 @@ $('quick-in').addEventListener('keydown', (e) => {
 });
 addEventListener('keydown', (e) => {
   if (!myId || e.target.tagName === 'INPUT' || e.repeat) return;
-  const n = '12345678'.indexOf(e.key);
+  // only a real single character counts - an empty key would match index 0 and fire an emote
+  const n = e.key && e.key.length === 1 ? '12345678'.indexOf(e.key) : -1;
   if (n >= 0 && ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'emote', i: n }));
 });
 

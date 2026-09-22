@@ -216,7 +216,9 @@ class Game {
   // jump to reach gets small stepping platforms below it. Keeps hand-built maps interesting but
   // makes sure nothing is a 6 m wall you can only wall-climb.
   addSteps(spawns) {
-    const MAX_RISE = 3, STEP_W = 2.6, HEAD = 2.3;
+    // Last resort only: a jump clears 3.6 m, an air jump 5.8 m and any wall can be climbed, so a step
+    // is added only where a ledge is genuinely out of reach and has no wall to climb either.
+    const MAX_RISE = 4.2, STEP_W = 2.6, HEAD = 2.3;
     const surfaces = () => {
       const out = [];
       for (const b of this.props.values()) {
@@ -244,7 +246,7 @@ class Game {
       return ok;
     };
     const added = [];
-    const MAX_STEPS = 14;                  // keep maps readable: only the worst climbs get a step
+    const MAX_STEPS = 8;                   // keep maps readable: only the worst climbs get a step
     for (let pass = 0; pass < 5; pass++) {
       const surf = surfaces();
       let placed = 0;
@@ -267,6 +269,17 @@ class Game {
           if (!best || cost < best.cost) best = { t, rise, gap, cost };
         }
         if (!best || best.rise <= MAX_RISE) continue;
+        // is there a face to wall climb right under either end of the ledge? then it is reachable
+        const climbable = (ex) => {
+          let solid = false;
+          this.world.rayCast(V(ex, s.y - 0.6), V(ex, s.y - 3.2), (f) => {
+            const b = f.getBody(), u = b.getUserData() || {};
+            if (f.isSensor() || u.kind !== 'prop' || b.getType() === 'dynamic') return -1;
+            solid = true; return 0;
+          });
+          return solid;
+        };
+        if (climbable(s.x0 + 0.2) || climbable(s.x1 - 0.2)) continue;
         // climb upward from the lower platform: one step per pass until the ledge is one jump away
         const t = best.t;
         const left = t.x1 <= s.x0 || (t.x0 < s.x0 && t.x1 < s.x1);
@@ -278,13 +291,21 @@ class Game {
           if (y < t.y + 0.8 || y > s.y - 1) continue;
           for (const d of dirs) for (const off of [STEP_W / 2 + 0.35, STEP_W / 2 + 1.8, STEP_W / 2 + 3.4]) spots.push([edge + d * off, y]);
         }
-        for (const [cx, y] of spots) {
-          if (cx < 1.5 || cx > this.W - 1.5) continue;
-          if (!free(cx - STEP_W / 2 - 0.2, y - 0.75, cx + STEP_W / 2 + 0.2, y + HEAD)) continue;
-          if (spawns.some(sp => Math.abs(sp.x - cx) < STEP_W / 2 + 1 && Math.abs(sp.y - y) < 3)) continue;
-          added.push({ x: cx, y, color: s.color });
+        const fits = (cx, y) => cx >= 1.5 && cx <= this.W - 1.5
+          && free(cx - STEP_W / 2 - 0.2, y - 0.75, cx + STEP_W / 2 + 0.2, y + HEAD)
+          && !spawns.some(sp => Math.abs(sp.x - cx) < STEP_W / 2 + 1 && Math.abs(sp.y - y) < 3);
+        const put = (cx, y) => {
+          added.push({ x: cx, y });
           this.addProp('b', cx, y - 0.25, { w: STEP_W, h: 0.5 }, { color: s.color || '#33353a' });
           placed++;
+        };
+        for (const [cx, y] of spots) {
+          if (!fits(cx, y)) continue;
+          put(cx, y);
+          // maps are built symmetrically: give the other side the same step so it looks placed,
+          // not sprinkled, and both sides play the same
+          const mx = this.W - cx;
+          if (Math.abs(mx - cx) > STEP_W && fits(mx, y) && added.length < MAX_STEPS + 2) put(mx, y);
           break;
         }
       }
