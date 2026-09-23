@@ -1398,8 +1398,11 @@ function gunSprite(type) {
 }
 
 // distance from a point along a direction to the first piece of level geometry (for the laser sight)
-function rayLevel(ox, oy, dx, dy, maxLen) {
-  let best = maxLen;
+function rayLevel(ox, oy, dx, dy, maxLen) { return rayHit(ox, oy, dx, dy, maxLen).dist; }
+
+// distance to the first piece of level geometry plus the surface normal there
+function rayHit(ox, oy, dx, dy, maxLen) {
+  let best = maxLen, nx = 0, ny = 0;
   for (const sh of map.shapes) {
     let x = sh.x, y = sh.y, a = sh.a;
     if (sh.k !== 0) { const o = frameById.get(sh.id); if (o) { x = o.x; y = o.y; a = o.a; } }
@@ -1407,25 +1410,27 @@ function rayLevel(ox, oy, dx, dy, maxLen) {
     const rx = ox - x, ry = oy - y;
     const px = rx * ca + ry * sa, py = -rx * sa + ry * ca;
     const vx = dx * ca + dy * sa, vy = -dx * sa + dy * ca;
-    let t;
+    let t, lx = 0, ly = 0;
     if (sh.s === 'c') {
       const b = px * vx + py * vy, c = px * px + py * py - sh.r * sh.r;
       const disc = b * b - c;
       if (disc < 0) continue;
       t = -b - Math.sqrt(disc);
+      lx = (px + vx * t) / sh.r; ly = (py + vy * t) / sh.r;
     } else {
       const hw = sh.w / 2, hh = sh.h / 2;
-      let t0 = 0, t1 = best, miss = false;
+      let t0 = 0, t1 = best, miss = false, axis = 0;
       if (Math.abs(vx) < 1e-6) { if (Math.abs(px) > hw) miss = true; }
-      else { const a1 = (-hw - px) / vx, a2 = (hw - px) / vx; t0 = Math.max(t0, Math.min(a1, a2)); t1 = Math.min(t1, Math.max(a1, a2)); }
+      else { const a1 = (-hw - px) / vx, a2 = (hw - px) / vx; if (Math.min(a1, a2) > t0) { t0 = Math.min(a1, a2); axis = 0; } t1 = Math.min(t1, Math.max(a1, a2)); }
       if (Math.abs(vy) < 1e-6) { if (Math.abs(py) > hh) miss = true; }
-      else { const a1 = (-hh - py) / vy, a2 = (hh - py) / vy; t0 = Math.max(t0, Math.min(a1, a2)); t1 = Math.min(t1, Math.max(a1, a2)); }
+      else { const a1 = (-hh - py) / vy, a2 = (hh - py) / vy; if (Math.min(a1, a2) > t0) { t0 = Math.min(a1, a2); axis = 1; } t1 = Math.min(t1, Math.max(a1, a2)); }
       if (miss || t1 < t0) continue;
       t = t0;
+      if (axis === 0) lx = vx > 0 ? -1 : 1; else ly = vy > 0 ? -1 : 1;
     }
-    if (t >= 0 && t < best) best = t;
+    if (t >= 0 && t < best) { best = t; nx = lx * ca - ly * sa; ny = lx * sa + ly * ca; }
   }
-  return best;
+  return { dist: best, nx, ny };
 }
 
 // the sniper paints its line of fire red before the shot - everyone can see it
@@ -1477,6 +1482,46 @@ function drawArc(p) {
     }
     vy += g * step;
     x = nx; y = ny;
+  }
+  ctx.restore();
+}
+
+// where a ricochet shot would end up: straight segments that reflect off walls and the map edges,
+// exactly like the server does it, up to 5 bounces
+function drawRicochet(p) {
+  const lx = p[18] / 100, ly = p[19] / 100, la = p[20] / 100;
+  const hx = lx + Math.sin(la) * HH[4], hy = ly - Math.cos(la) * HH[4];
+  let aim = p[2] / 100;
+  if (p[0] === myId) { const m = aimPoint(); aim = Math.atan2(m.y - (p[10] / 100 + 0.15), m.x - p[9] / 100); }
+  const mine = p[0] === myId;
+  let x = hx + Math.cos(aim) * BARREL.laser, y = hy + Math.sin(aim) * BARREL.laser;
+  let dx = Math.cos(aim), dy = Math.sin(aim);
+  const maxB = mine ? 5 : 2;
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (let i = 0; i <= maxB; i++) {
+    const hit = rayHit(x, y, dx, dy, 80);
+    // the map edges bounce too
+    let len = hit.dist, nx = hit.nx, ny = hit.ny;
+    const edge = (lim, comp, vel, n) => {
+      if (vel === 0) return;
+      const d = (lim - comp) / vel;
+      if (d > 0.01 && d < len) { len = d; nx = n[0]; ny = n[1]; }
+    };
+    edge(0.2, x, dx, [1, 0]); edge(map.W - 0.2, x, dx, [-1, 0]);
+    edge(0.2, y, dy, [0, 1]); edge(map.H - 0.2, y, dy, [0, -1]);
+    const ex = x + dx * len, ey = y + dy * len;
+    const fade = (mine ? 0.85 : 0.4) * (1 - i / (maxB + 1.5));
+    ctx.strokeStyle = `rgba(120,255,240,${fade})`;
+    ctx.lineWidth = Math.max(1.5, (0.05 - i * 0.005) * cam.s);
+    ctx.setLineDash(i ? [7, 6] : []);
+    ctx.beginPath(); ctx.moveTo(sx(x), sy(y)); ctx.lineTo(sx(ex), sy(ey)); ctx.stroke();
+    if (len >= 79 || (!nx && !ny)) break;
+    ctx.fillStyle = `rgba(120,255,240,${fade})`;
+    ctx.beginPath(); ctx.arc(sx(ex), sy(ey), Math.max(1.5, 0.06 * cam.s), 0, 7); ctx.fill();
+    const d2 = 2 * (dx * nx + dy * ny);
+    dx -= d2 * nx; dy -= d2 * ny;
+    x = ex + nx * 0.03; y = ey + ny * 0.03;
   }
   ctx.restore();
 }
@@ -1666,7 +1711,7 @@ function render(nowMs) {
       ctx.restore();
     }
     players.sort((a, b) => a[1] - b[1] || (a[0] === myId) - (b[0] === myId));
-    for (const p of players) if (p[1]) { if (p[3] === 3) drawLaser(p); else if (p[3] === 6) drawArc(p); }
+    for (const p of players) if (p[1]) { if (p[3] === 3) drawLaser(p); else if (p[3] === 6) drawArc(p); else if (p[3] === 7) drawRicochet(p); }
     for (const p of players) headPos.set(p[0], drawPlayer(p, time, dt));
     // freshly joined players are briefly protected - show it
     for (const p of players) {
