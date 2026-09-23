@@ -15,9 +15,9 @@ module.exports = {
     shotgun: { ammo: 6,  cd: 0.8,  dmg: 9,  kb: 3.8, speed: 60,  life: 0.32,spread: 0.2,   pellets: 7, recoil: 13, auto: false, weight: 18, len: 0.85, twoHand: true, rack: 0.55 },
     sniper:  { ammo: 4,  cd: 1.2,  dmg: 80, kb: 29,  speed: 170, life: 1.0, spread: 0,     pellets: 1, recoil: 14, auto: false, weight: 10, len: 1.15, twoHand: true, rack: 0.7 },
     rpg:     { ammo: 5,  cd: 1.1,  dmg: 70, kb: 0,   speed: 26,  life: 4,   spread: 0,     pellets: 0, recoil: 13, auto: false, weight: 8,  len: 1.0, twoHand: true, rack: 0.62 },
-    minigun: { ammo: 80, cd: 0.055,dmg: 4,  kb: 1.7, speed: 80,  life: 1.0, spread: 0.12,  pellets: 1, recoil: 5.2, auto: true,  weight: 8,  len: 1.0, twoHand: true, spinup: 0.4, rack: 0.5 },
-    // bounces off walls up to 4 times - shoot around corners, or into your own face
-    laser:   { ammo: 10, cd: 0.5,  dmg: 24, kb: 7,   speed: 105, life: 3.0, spread: 0,     pellets: 1, recoil: 3.5, auto: false, weight: 12, len: 0.95, twoHand: true, rack: 0.45, bounces: 4 },
+    minigun: { ammo: 80, cd: 0.055,dmg: 4,  kb: 1.7, speed: 80,  life: 1.0, spread: 0.12,  pellets: 1, recoil: 52,  auto: true,  weight: 8,  len: 1.0, twoHand: true, spinup: 0.4, rack: 0.5 },
+    // ricochets 100 times off walls and map edges - the shot keeps flying for seconds
+    laser:   { ammo: 10, cd: 0.5,  dmg: 24, kb: 7,   speed: 105, life: 6.0, spread: 0,     pellets: 1, recoil: 3.5, auto: false, weight: 12, len: 0.95, twoHand: true, rack: 0.45, bounces: 100 },
     grenade: { ammo: 3,  cd: 0.7,  dmg: 55, kb: 0,  speed: 15,  life: 2.2, spread: 0,     pellets: 0, recoil: 0,  auto: false, weight: 13, len: 0.15, rack: 0.25 },
   },
 

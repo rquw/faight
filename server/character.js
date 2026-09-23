@@ -453,6 +453,14 @@ class Character {
     }
   }
 
+  // keep a body under a speed it can still collide with properly (0.6 m walls at 60 Hz)
+  clampSpeed(max) {
+    for (const b of this.bodies) {
+      const v = b.getLinearVelocity(), sp = Math.hypot(v.x, v.y);
+      if (sp > max) b.setLinearVelocity(V(v.x / sp * max, v.y / sp * max));
+    }
+  }
+
   damage(amount, by, stun = 0) {
     // SFTG: 0.5 s spawn protection; players who drop into a running round get their own 1.2 s
     if (!this.alive || this.game.freeze > 0 || this.game.time < 1.3 || this.game.time - this.born < 1.2) return;

@@ -184,6 +184,7 @@ class Game {
     this.nextObj = 1;
     this.time = 0; this.freeze = 0.8; this.ending = null; this.sudden = false; this.suddenT = 0;
     this.dropTimer = 2;
+    this.dropCeiling = null;
     this.pending = [];
     this.pendingBreak = [];
     this.world.on('begin-contact', (c) => this.onContact(c));
@@ -728,6 +729,8 @@ class Game {
     const { dir, end } = this.muzzle(c, w);
     const tIdx = C.ORDER.indexOf(type);
     c.kick(-dir.x * w.recoil, -dir.y * w.recoil * 0.6, false);
+    // heavy recoil would otherwise fling you through walls and off the map in half a second
+    if (w.recoil > 20) c.clampSpeed(32);
     this.event(['fire', c.player.id, tIdx, r2(end.x), r2(end.y), Math.round(c.aim * 100)]);
     if (type === 'rpg' || type === 'grenade') { this.spawnProj(c, type, end, dir); return; }
     for (let i = 0; i < w.pellets; i++) {
@@ -768,7 +771,7 @@ class Game {
           b.x = nx; b.y = ny;
           b.bounces--;
           b.life -= this.dt;
-          this.event(['br', b.id, r2(b.x), r2(b.y), r2(b.vx), r2(b.vy)]);
+          this.bounceEvent(b);
           if (b.life > 0) keep.push(b);
           continue;
         }
@@ -810,7 +813,7 @@ class Game {
         b.x = best.point.x + n.x * 0.04; b.y = best.point.y + n.y * 0.04;
         b.bounces--;
         b.life -= this.dt;
-        this.event(['br', b.id, r2(b.x), r2(b.y), r2(b.vx), r2(b.vy)]);
+        this.bounceEvent(b);
         this.damageProp(body, b.w.dmg * 0.4, dx, dy);
         if (b.life > 0) keep.push(b);
         continue;
@@ -829,6 +832,13 @@ class Game {
       this.event(['bh', b.id, r2(best.point.x), r2(best.point.y), victim]);
     }
     this.bullets = keep;
+  }
+
+  // a ricochet that ends up wedged in a corner still bounces, it just stops shouting about it
+  bounceEvent(b) {
+    if (this.time - (b.lastBounce || -9) < 0.1) return;
+    b.lastBounce = this.time;
+    this.event(['br', b.id, r2(b.x), r2(b.y), r2(b.vx), r2(b.vy)]);
   }
 
   punch(c) {
@@ -985,8 +995,8 @@ class Game {
       this.dropTimer = (6 + Math.random() * 4) / Math.sqrt(Math.max(1, n / 2));
       if (live < maxItems) {
         const type = pickWeapon();
-        const x = this.W * (0.12 + Math.random() * 0.76);
-        const it = this.spawnItem(type, x, this.H + 3, C.WEAPONS[type].ammo, null);
+        const drop = this.dropSpot();
+        const it = this.spawnItem(type, drop.x, drop.y, C.WEAPONS[type].ammo, null);
         it.body.setAngularVelocity((Math.random() - 0.5) * 3);
       }
     }
@@ -1016,6 +1026,27 @@ class Game {
   }
 
   // cause: 1 shot, 2 punch, 3 explosion, 4 hazard, 0 fell / unknown
+  // Where a weapon falls from: below any roof or beam (otherwise it lands up there and nobody can
+  // get it), and never inside a wall. Spawn points tell us how high players actually go.
+  dropSpot() {
+    if (this.dropCeiling == null) {
+      const top = this.spawns && this.spawns.length ? Math.max(...this.spawns.map(s => s.y)) : this.H;
+      this.dropCeiling = Math.min(this.H + 3, top + 6);
+    }
+    const y = this.dropCeiling;
+    for (let i = 0; i < 10; i++) {
+      const x = this.W * (0.12 + Math.random() * 0.76);
+      let blocked = false;
+      this.world.queryAABB(pl.AABB(V(x - 0.5, y - 0.5), V(x + 0.5, y + 0.5)), (f) => {
+        const u = f.getBody().getUserData() || {};
+        if (!f.isSensor() && u.kind === 'prop') { blocked = true; return false; }
+        return true;
+      });
+      if (!blocked) return { x, y };
+    }
+    return { x: this.W * (0.12 + Math.random() * 0.76), y };
+  }
+
   onDeath(c, by) {
     const p = c.chest.getPosition();
     const killer = by && by !== c && this.players.has(by.player.id) ? by.player.id : 0;
