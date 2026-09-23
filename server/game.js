@@ -7,6 +7,7 @@ const protocol = require('../public/protocol');
 const V = pl.Vec2;
 
 const DT = 1 / 60;
+const IDLE_KICK = 5 * 60 * 1000;   // no input at all for five minutes -> out
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r2 = (n) => Math.round(n * 100) / 100;
 
@@ -40,7 +41,7 @@ class Game {
     const p = {
       id: this.nextId++, num, name: String(name || 'Stick').slice(0, 14) || 'Stick',
       color: C.COLORS[num % C.COLORS.length], score: 0, ws,
-      input: { l: 0, r: 0, d: 0, j: 0, s: 0, th: 0, ax: 0, ay: 0 }, char: null,
+      input: { l: 0, r: 0, d: 0, j: 0, s: 0, th: 0, ax: 0, ay: 0 }, char: null, joined: Date.now(),
     };
     this.players.set(p.id, p);
     if (!this.hostId) this.hostId = p.id;
@@ -102,6 +103,7 @@ class Game {
 
   input(p, msg) {
     const i = p.input, c = p.char;
+    p.lastAct = Date.now();
     if (c) {
       if (msg.j && !i.j) c.jumpPressed();
       if (msg.s && !i.s) c.shootQueued = true;
@@ -129,7 +131,19 @@ class Game {
 
   event(e) { this.events.push(e); }
 
+  // anyone who has not touched a key for a while frees their slot again
+  kickIdle() {
+    for (const p of this.players.values()) {
+      if (p.bot || p.kicked) continue;
+      if (Date.now() - (p.lastAct || p.joined || 0) < IDLE_KICK) continue;
+      p.kicked = true;
+      this.send(p, { t: 'err', m: 'Kicked after ' + Math.round(IDLE_KICK / 60000) + ' minutes without input - just join again' });
+      try { p.ws.close(); } catch {}
+    }
+  }
+
   chat(p, text) {
+    p.lastAct = Date.now();
     if (this.time - (p.lastChat || -9) < 0.8 && p.lastChatRound === this.mapDef) return;
     const clean = String(text || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80);
     if (!clean) return;
@@ -139,6 +153,7 @@ class Game {
   }
 
   emote(p, i) {
+    p.lastAct = Date.now();
     if (this.time - (p.lastEmote || -9) < 0.7) return;
     p.lastEmote = this.time;
     this.event(['emote', p.id, Math.max(0, Math.min(7, i | 0))]);
@@ -581,6 +596,7 @@ class Game {
       }
     }
 
+    if (this.tickN % 600 === 0) this.kickIdle();
     this.updateBullets();
     this.updateProjectiles();
     this.updateItems();

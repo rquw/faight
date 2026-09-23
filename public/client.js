@@ -15,7 +15,7 @@ let ctx = cv.getContext('2d');
 let W = 0, H = 0, dpr = 1;
 
 // ---------------------------------------------------------------- state
-let ws = null, myId = 0, roomCode = '';
+let ws = null, myId = 0, roomCode = '', lastErr = '';
 const roster = new Map();
 const colorCache = new Map();
 let map = null, mapT = 0;
@@ -387,7 +387,11 @@ function connect(onOpen, attempt = 0) {
       else $('err').textContent = 'Server unreachable';
       return;
     }
-    if (myId) { $('menu').hidden = false; $('hud').hidden = true; touchLayer.hidden = true; $('err').textContent = 'Connection lost'; myId = 0; map = null; lobbyPoll(); }
+    if (myId) {
+      $('menu').hidden = false; $('hud').hidden = true; touchLayer.hidden = true;
+      $('err').textContent = lastErr || 'Connection lost';   // e.g. the idle kick reason
+      myId = 0; map = null; lobbyPoll();
+    }
   };
   sock.binaryType = 'arraybuffer';
   sock.onmessage = (ev) => {
@@ -398,7 +402,7 @@ function connect(onOpen, attempt = 0) {
 
 function onMessage(m) {
   switch (m.t) {
-    case 'err': $('err').textContent = m.m; break;
+    case 'err': $('err').textContent = m.m; lastErr = m.m; break;
     case 'pong': {
       const r = performance.now() - m.c;
       rtt = rtt ? rtt + (r - rtt) * 0.3 : r;
@@ -420,6 +424,7 @@ function onMessage(m) {
       clearInterval(lobbyTimer);
       touchLayer.hidden = !touchMode;
       history.replaceState(null, '', '?code=' + m.code + location.hash);
+      lastErr = '';
       startPing();
       break;
     case 'roster':
@@ -436,6 +441,9 @@ function onMessage(m) {
       map = m;
       map.deco = makeDeco(m);
       map.shapeById = new Map(m.shapes.map(sh => [sh.id, sh]));
+      for (const store of [hitFlash, hpShow, protect, chatBubbles, headPos]) {
+        for (const id of [...store.keys()]) if (!roster.has(id)) store.delete(id);
+      }
       mapSerial++;
       mapT = 0;
       snaps = []; clockOffset = null; pendingEvents = []; particles = []; rings = []; flashes = []; bullets.clear(); protect.clear(); goneIds.clear();
@@ -460,6 +468,15 @@ function renderScores() {
 }
 
 // ---------------------------------------------------------------- snapshots
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  pendingEvents.length = 0;
+  snaps.length = 0;
+  clockOffset = null;
+  particles.length = 0; rings.length = 0; flashes.length = 0;
+  bullets.clear();
+});
+
 function onSnap(s) {
   const now = performance.now() / 1000;
   if (lastSnapAt) {
@@ -588,6 +605,16 @@ const touch = { move: null, aim: null, jump: null, drop: null, aimDir: null, tap
 dbg.touch = touch; dbg.keys = keys;
 Object.defineProperty(dbg, 'players', { get: () => livePlayers });
 dbg.toScreen = (x, y) => ({ x: sx(x), y: sy(y) });
+dbg.counts = () => ({
+  shapes: map ? map.shapes.length : 0, shapeIds: map ? map.shapeById.size : 0,
+  snaps: snaps.length, pending: pendingEvents.length, particles: particles.length,
+  rings: rings.length, flashes: flashes.length, bullets: bullets.size,
+  hitFlash: hitFlash.size, hpShow: hpShow.size, protect: protect.size, gone: goneIds.size,
+  bubbles: chatBubbles.size, heads: headPos.size, sfxKeys: Object.keys(sfxLast).length,
+  gunSprites: gunSprites.size, crateSprites: crateSprites.size, shades: shadeCache.size,
+  dom: document.getElementsByTagName('*').length,
+  heapMB: performance.memory ? +(performance.memory.usedJSHeapSize / 1e6).toFixed(1) : null,
+});
 const touchLayer = document.createElement('div');
 touchLayer.id = 'touch';
 touchLayer.hidden = true;
@@ -885,9 +912,20 @@ function handOf(id) {
   return { x: lx + Math.sin(la) * HH[4], y: ly - Math.cos(la) * HH[4] };
 }
 
+// Events that only make noise and particles are dropped when a backlog builds up (tabbed out, or a
+// hitch): the ones that change the world are always applied, in order.
+const STATE_EVENTS = new Set(['add', 'rm', 'cut', 'hp', 'win', 'chat', 'emote', 'gone', 'spawn', 'slow', 'sudden', 'die', 'b', 'bh', 'br']);
 function processEvents(rt) {
-  while (pendingEvents.length && pendingEvents[0].t <= rt + 0.017) handleEvent(pendingEvents.shift().e, rt - pendingEvents.length * 0);
-  if (pendingEvents.length > 600) pendingEvents.splice(0, pendingEvents.length - 600);
+  const backlog = pendingEvents.length > 120;
+  while (pendingEvents.length && pendingEvents[0].t <= rt + 0.017) {
+    const e = pendingEvents.shift().e;
+    if (backlog && !STATE_EVENTS.has(e[0])) continue;
+    handleEvent(e);
+  }
+  if (pendingEvents.length > 400) {
+    // still behind: keep only what changes the world
+    pendingEvents = pendingEvents.filter(p => STATE_EVENTS.has(p.e[0])).slice(-200);
+  }
 }
 
 let lastPlayers = new Map();
@@ -1593,7 +1631,9 @@ let lastFrame = performance.now();
 const headPos = new Map();
 const frameList = [], frameById = new Map();
 
-const PERF = location.hash === '#perf';
+let PERF = location.hash === '#perf';
+// P shows frames, memory and object counts - so a real session can be measured, not guessed at
+addEventListener('keydown', (e) => { if (e.code === 'KeyP' && !e.repeat && e.target.tagName !== 'INPUT') { PERF = !PERF; if (!PERF && perfEl) { perfEl.remove(); perfEl = null; } } });
 let perfMs = 0, perfN = 0, perfEl = null;
 function frame() {
   requestAnimationFrame(frame);
@@ -1603,7 +1643,8 @@ function frame() {
     perfMs += performance.now() - nowMs;
     if (++perfN === 60) {
       if (!perfEl) { perfEl = document.createElement('div'); perfEl.style.cssText = 'position:fixed;bottom:8px;right:12px;font:12px monospace;color:#fff;background:#000a;padding:2px 6px;z-index:9'; perfEl.id = 'perf'; document.body.appendChild(perfEl); }
-      perfEl.textContent = (perfMs / 60).toFixed(2) + ' ms/frame';
+      const c = dbg.counts();
+      perfEl.textContent = `${(perfMs / 60).toFixed(1)} ms/frame · ${Math.round(60000 / Math.max(1, perfMs))} fps · ${c.heapMB || '?'} MB · p${c.particles} s${c.shapes} e${c.pending}`;
       perfMs = 0; perfN = 0;
     }
   } else render(nowMs);
@@ -1984,7 +2025,9 @@ function smp(name, vol = 1, rate = 1) {
   src.playbackRate.value = rate;
   const g = AC.createGain();
   g.gain.value = Math.max(0.02, Math.min(2.5, vol));
-  src.connect(g); g.connect(out());
+  const dst = out();
+  src.connect(g); g.connect(dst);
+  release(src, g, dst === master ? g : dst);
   src.start(AC.currentTime + sndDelay);
   return true;
 }
@@ -1997,13 +2040,19 @@ function out() {
   p.connect(master);
   return p;
 }
+// every sound builds a few web audio nodes; let them go again when they have played
+function release(src, ...nodes) {
+  src.onended = () => { try { src.disconnect(); for (const n of nodes) n.disconnect(); } catch {} };
+}
 function noise(dur, freq, q, vol, type = 'lowpass', sweep, attack = 0.002) {
   const t = AC.currentTime + sndDelay;
   const src = AC.createBufferSource(); src.buffer = noiseBuf;
   const f = AC.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
   if (sweep) f.frequency.exponentialRampToValueAtTime(sweep, t + dur);
   const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f); f.connect(g); g.connect(out());
+  const o = out();
+  src.connect(f); f.connect(g); g.connect(o);
+  release(src, f, g, o === master ? f : o);
   src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.05);
 }
 function thump(f0, f1, dur, vol, type = 'sine') {
@@ -2011,7 +2060,10 @@ function thump(f0, f1, dur, vol, type = 'sine') {
   const o = AC.createOscillator(); o.type = type;
   o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
   const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g); g.connect(out()); o.start(t); o.stop(t + dur + 0.05);
+  const dst = out();
+  o.connect(g); g.connect(dst);
+  release(o, g, dst === master ? g : dst);
+  o.start(t); o.stop(t + dur + 0.05);
 }
 // tiny metallic click: very short resonant noise
 const click = (freq, vol, dur = 0.018) => noise(dur, freq, 8, vol, 'bandpass', null, 0.001);
